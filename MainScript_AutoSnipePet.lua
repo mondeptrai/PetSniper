@@ -1,21 +1,10 @@
 --[[
-    ╔══════════════════════════════════════════════════════════════╗
-    ║      GrowGarden2 - AUTO SNIPE PET PREMIUM (Core Logic)  ║
-    ║         Ultimate High-Speed Pet Sniping System            ║
-    ╚══════════════════════════════════════════════════════════════╝
+    ╔════════════════════════════════════════════════════════════════╗
+    ║      GrowGarden2 - AUTO SNIPE PET PREMIUM (Core Logic)      ║
+    ╚════════════════════════════════════════════════════════════════╝
 
-    VERSION: PREMIUM 2.2
-    FEATURES:
-    - 100% Purchase Accuracy (Multi-Method Purchase System)
-    - Smart Server Hopping (Low Pop + Long Running Servers)
-    - Instant Teleportation (CFrame Bypass)
-    - Anti-AFK System
-    - Real-time Pet Spawn Prediction
-    - Performance Optimized
-    - Built-in Retry System for License Verification
-
-    NOTE: This script requires LoaderSnipePet.lua to be run first.
-    The Loader handles all configuration and license key setup.
+    VERSION: PREMIUM 2.4
+    This script is loaded by LoaderSnipePet.lua
 ]]
 
 -- Check if loaded directly (not via loader)
@@ -44,12 +33,12 @@ repeat task.wait() until Player:FindFirstChild("PlayerGui")
 task.wait(1)
 
 -- ============================================
--- AUTO LICENSE VERIFICATION (NO UI)
+-- LICENSE VERIFICATION
 -- ============================================
 
 local VERIFY_CONFIG = {
     MAX_RETRIES = 3,
-    RETRY_DELAY = 3,
+    RETRY_DELAY = 2,
     SERVER_URL = "http://localhost:3000",
 }
 
@@ -67,71 +56,60 @@ local function VerifyLicense()
     local key = getgenv().LICENSE_KEY
 
     if not key or key == "" or key == "YOUR_LICENSE_KEY_HERE" then
-        print("[Premium Sniper] No license key found! Configure your key in LoaderSnipePet.lua")
+        warn("[Premium Sniper] No license key found!")
         KickPlayer("No license key configured!\nPlease set your key in LoaderSnipePet.lua")
         return false
     end
 
-    print("[Premium Sniper] Verifying license key: " .. key:sub(1, 4) .. "****")
+    print("[Premium Sniper] Verifying key: " .. key:sub(1, 4) .. "****")
 
     local hwid = GetHWID()
     local url = VERIFY_CONFIG.SERVER_URL .. "/verify-key?key=" .. key .. "&hwid=" .. hwid
     local retries = 0
 
     while retries < VERIFY_CONFIG.MAX_RETRIES do
-        print("[Premium Sniper] Attempt " .. (retries + 1) .. "/" .. VERIFY_CONFIG.MAX_RETRIES .. "...")
+        print("[Premium Sniper] Attempt " .. (retries + 1) .. "/" .. VERIFY_CONFIG.MAX_RETRIES)
 
         local success, result = pcall(function()
             return HttpService:GetAsync(url)
         end)
 
-        if not success then
-            print("[Premium Sniper] Connection failed")
-            retries = retries + 1
-            if retries < VERIFY_CONFIG.MAX_RETRIES then
-                print("[Premium Sniper] Retrying in " .. VERIFY_CONFIG.RETRY_DELAY .. " seconds...")
-                task.wait(VERIFY_CONFIG.RETRY_DELAY)
-            end
-        else
-            print("[Premium Sniper] Response received, checking...")
+        if success then
             local decodeSuccess, data = pcall(function()
                 return HttpService:JSONDecode(result)
             end)
 
-            if not decodeSuccess then
-                print("[Premium Sniper] Invalid server response")
-                retries = retries + 1
-                if retries < VERIFY_CONFIG.MAX_RETRIES then
-                    task.wait(VERIFY_CONFIG.RETRY_DELAY)
-                end
-            elseif data.status == "KEY_VALID" then
-                print("[Premium Sniper] License verified successfully!")
-                getgenv().LICENSE_VERIFIED = true
-                return true
-            elseif data.status == "KEY_INVALID" then
-                print("[Premium Sniper] Invalid license key!")
-                KickPlayer("Invalid license key!\nPlease check your key and try again.")
-                return false
-            elseif data.status == "KEY_EXPIRED" then
-                print("[Premium Sniper] License expired!")
-                KickPlayer("License expired!\nPlease renew your subscription.")
-                return false
-            elseif data.status == "HWID_MISMATCH" or data.status == "KEY_ALREADY_USED" then
-                print("[Premium Sniper] Key already used on another machine!")
-                KickPlayer("This key has already been activated on another machine.")
-                return false
-            else
-                print("[Premium Sniper] Server error: " .. tostring(data.error or "Unknown"))
-                retries = retries + 1
-                if retries < VERIFY_CONFIG.MAX_RETRIES then
-                    task.wait(VERIFY_CONFIG.RETRY_DELAY)
+            if decodeSuccess and data then
+                if data.status == "KEY_VALID" then
+                    print("[Premium Sniper] Verified!")
+                    getgenv().LICENSE_VERIFIED = true
+                    return true
+                elseif data.status == "KEY_INVALID" then
+                    warn("[Premium Sniper] Invalid key!")
+                    KickPlayer("Invalid license key!")
+                    return false
+                elseif data.status == "KEY_EXPIRED" then
+                    warn("[Premium Sniper] Key expired!")
+                    KickPlayer("License expired!")
+                    return false
+                elseif data.status == "HWID_MISMATCH" then
+                    warn("[Premium Sniper] HWID mismatch!")
+                    KickPlayer("Key bound to another machine!")
+                    return false
                 end
             end
+        else
+            print("[Premium Sniper] Connection failed: " .. tostring(result))
+        end
+
+        retries = retries + 1
+        if retries < VERIFY_CONFIG.MAX_RETRIES then
+            task.wait(VERIFY_CONFIG.RETRY_DELAY)
         end
     end
 
-    print("[Premium Sniper] All verification attempts failed!")
-    KickPlayer("Verification failed!\nServer unreachable. Check your connection.")
+    warn("[Premium Sniper] All attempts failed!")
+    KickPlayer("Server unreachable!")
     return false
 end
 
@@ -149,12 +127,6 @@ getgenv().API_RETRY_CONFIG = {
     RETRY_DELAY = 5,
     MAX_RETRIES = 3,
 }
-
--- ============================================
--- WAIT FOR GAME LOAD (for autoexec folder)
--- ============================================
-
-print("[Premium Sniper] Game loaded! Initializing Premium Sniper...")
 
 -- ============================================
 -- PREMIUM CONFIGURATION LOADER
@@ -278,14 +250,6 @@ local function PremiumServerHop()
     pcall(function()
         game:GetService("TeleportService"):TeleportToPlaceInstance(GetGameId(), game.JobId)
     end)
-end
-
--- ============================================
--- UI FUNCTIONS (Console-style)
--- ============================================
-
-local function UpdateSniperUI()
-    -- Console output style (for debugging)
 end
 
 -- ============================================
@@ -465,11 +429,11 @@ getgenv().ForceServerHop = function()
 end
 
 -- ============================================
--- INITIALIZATION (Runs after license verified)
+-- INITIALIZATION
 -- ============================================
 
 local function InitializeSniper()
-    print("═══════════════════════════════════════════════")
+    print("================================================")
     print("  GrowGarden2 - PREMIUM SNIPER LOADED")
     print("  Commands:")
     print("  - getgenv().StartPetSniper()")
@@ -479,15 +443,12 @@ local function InitializeSniper()
     print("  - getgenv().AddSnipeTarget('PetName')")
     print("  - getgenv().SetMaxPrice(1000000)")
     print("  - getgenv().ForceServerHop()")
-    print("═══════════════════════════════════════════════")
+    print("================================================")
 
     if getgenv().AutoBuyPets then
         StartSniperLoop()
     end
 end
-
--- Register callback for after license verification
-getgenv().LICENSE_ON_VERIFIED = InitializeSniper
 
 -- Call initialization
 InitializeSniper()
