@@ -402,6 +402,63 @@ local function FirePromptSignal(prompt)
     return success
 end
 
+-- Method 1: VirtualInputManager (works on most executors)
+local function FirePromptVM(prompt)
+    if not prompt then return false end
+    
+    local success = pcall(function()
+        local keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.E
+        
+        -- Press down
+        if VirtualInputManager then
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+            task.wait()
+            -- Release
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+        end
+    end)
+    
+    return success
+end
+
+-- Method 2: Firesignal with complete lifecycle (InputBegan -> Triggered -> InputEnded)
+local function FirePromptComplete(prompt)
+    if not prompt then return false end
+    
+    local success = pcall(function()
+        local btn = prompt.PromptButtonFrame
+        if not btn then return end
+        
+        -- Set instant hold
+        local origHold = prompt.HoldDuration
+        prompt.HoldDuration = 0
+        prompt.HeldDownTime = 0
+        
+        -- Complete input lifecycle
+        if btn.InputBegan then
+            firesignal(btn.InputBegan, btn, Enum.UserInputType.Keyboard, Enum.KeyCode.E)
+        end
+        
+        task.wait(0.01)
+        
+        -- Fire Triggered
+        if prompt.Triggered then
+            firesignal(prompt.Triggered)
+        end
+        
+        task.wait(0.01)
+        
+        if btn.InputEnded then
+            firesignal(btn.InputEnded, btn, Enum.UserInputType.Keyboard, Enum.KeyCode.E)
+        end
+        
+        -- Restore
+        prompt.HoldDuration = origHold
+    end)
+    
+    return success
+end
+
 -- Method 3: Set HoldDuration to 0 and trigger (instant buy - MOST RELIABLE)
 local function FirePromptInstant(prompt)
     if not prompt then return false end
@@ -439,7 +496,7 @@ local function FirePromptInstant(prompt)
                 firesignal(btn.InputBegan)
             end
             
-            -- Fire Triggered event if it exists
+            -- Fire Triggered event again
             if prompt.Triggered then
                 firesignal(prompt.Triggered)
             end
@@ -466,7 +523,7 @@ local function FirePromptInstant(prompt)
     return success
 end
 
--- Method 5: Ultra-fast rapid fire (for when pet is right in front)
+-- Method 4: Ultra-fast rapid fire with all methods
 local function RapidFirePurchase(prompt)
     if not prompt then return false end
     
@@ -475,24 +532,40 @@ local function RapidFirePurchase(prompt)
         prompt.HoldDuration = 0
         prompt.HeldDownTime = 0
         
-        for i = 1, 5 do
+        for i = 1, 8 do
+            -- firesignal Triggered
             if prompt.Triggered then
                 firesignal(prompt.Triggered)
             end
+            
+            -- Direct Trigger
             if prompt.Trigger then
                 pcall(function() prompt:Trigger() end)
             end
+            
+            -- PromptButtonFrame methods
             if prompt.PromptButtonFrame then
-                if prompt.PromptButtonFrame.InputBegan then
-                    firesignal(prompt.PromptButtonFrame.InputBegan)
+                local btn = prompt.PromptButtonFrame
+                if btn.InputBegan then
+                    firesignal(btn.InputBegan)
                 end
                 if prompt.Triggered then
                     firesignal(prompt.Triggered)
                 end
-                if prompt.PromptButtonFrame.InputEnded then
-                    firesignal(prompt.PromptButtonFrame.InputEnded)
+                if btn.InputEnded then
+                    firesignal(btn.InputEnded)
+                end
+                if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                    pcall(function() btn:Click() end)
                 end
             end
+            
+            -- VirtualInputManager as backup
+            if VirtualInputManager then
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+            end
+            
             task.wait(0.01)
         end
     end)
@@ -520,7 +593,7 @@ local function FireRemoteEvent(model)
     return success
 end
 
--- ULTIMATE PURCHASE - No E key required, uses firesignal directly with instant HoldDuration
+-- ULTIMATE PURCHASE - Uses ALL methods for maximum success rate
 local function UltimatePurchase(pet)
     if not pet or not pet.PetName then return false, "Invalid pet data" end
     
@@ -566,7 +639,7 @@ local function UltimatePurchase(pet)
     
     -- Teleport RIGHT next to the pet (in front)
     InstantTeleport(rootPart.Position + Vector3.new(0, 0, -2))
-    task.wait(0.05) -- Wait for server to register position
+    task.wait(0.08) -- Wait longer for server to register position
     
     -- Re-verify pet is still there
     if not model:IsDescendantOf(workspace) then
@@ -579,34 +652,40 @@ local function UltimatePurchase(pet)
     
     if not prompt then
         PurchaseInProgress = false
-        return true, "No prompt found - pet may have been purchased"
+        return false, "No prompt found"
     end
     
-    -- === PHASE 1: Instant firesignal (no E key needed!) ===
-    -- This method bypasses the 1-second hold requirement by:
-    -- 1. Setting HoldDuration = 0
-    -- 2. Firing the Triggered event directly
+    -- Log prompt info for debugging
+    pcall(function()
+        print("[Purchase] Prompt found - HoldDuration: " .. tostring(prompt.HoldDuration) .. ", ActionText: " .. tostring(prompt.ActionText))
+    end)
     
+    -- === PHASE 1: VirtualInputManager (simulates real keypress) ===
+    if VirtualInputManager then
+        FirePromptVM(prompt)
+        task.wait(0.05)
+        
+        if not model:IsDescendantOf(workspace) then
+            PurchaseInProgress = false
+            return true, "Pet purchased via VirtualInputManager"
+        end
+    end
+    
+    -- === PHASE 2: Firesignal Triggered event (instant) ===
     FirePromptInstant(prompt)
-    task.wait(0.03)
+    FirePromptComplete(prompt)
+    task.wait(0.05)
     
     if not model:IsDescendantOf(workspace) then
         PurchaseInProgress = false
-        return true, "Pet purchased via instant firesignal"
+        return true, "Pet purchased via firesignal"
     end
     
-    -- === PHASE 2: Try RemoteFunction/RemoteEvent if available ===
-    FireRemotePurchase(model)
-    FireRemoteEvent(model)
-    task.wait(0.02)
-    
-    if not model:IsDescendantOf(workspace) then
-        PurchaseInProgress = false
-        return true, "Pet purchased via remote"
-    end
-    
-    -- === PHASE 3: Rapid fire (multiple attempts) ===
-    for i = 1, 10 do
+    -- === PHASE 3: Rapid fire with ALL methods (15 attempts) ===
+    for i = 1, 15 do
+        FirePromptInstant(prompt)
+        FirePromptComplete(prompt)
+        FirePromptVM(prompt)
         RapidFirePurchase(prompt)
         task.wait(0.02)
         
@@ -616,24 +695,28 @@ local function UltimatePurchase(pet)
         end
     end
     
-    -- === PHASE 4: Teleport directly on pet and rapid fire ===
+    -- === PHASE 4: Teleport directly on pet and maximum fire ===
     InstantTeleport(rootPart.Position)
-    task.wait(0.03)
+    task.wait(0.05)
     
     if not model:IsDescendantOf(workspace) then
         PurchaseInProgress = false
         return true, "Pet purchased after direct teleport"
     end
     
-    for i = 1, 15 do
+    -- Maximum fire at close range
+    for i = 1, 20 do
         FirePromptInstant(prompt)
+        FirePromptComplete(prompt)
+        FirePromptVM(prompt)
         RapidFirePurchase(prompt)
         FireRemotePurchase(model)
-        task.wait(0.015)
+        FireRemoteEvent(model)
+        task.wait(0.01)
         
         if not model:IsDescendantOf(workspace) then
             PurchaseInProgress = false
-            return true, "Pet purchased via close-range rapid fire"
+            return true, "Pet purchased via close-range max fire"
         end
     end
     
@@ -1246,24 +1329,13 @@ local function DetectMobileExecutor()
     getgenv().isMobileExecutor = isMobile
     
     if isMobile then
-        print("[Premium Sniper] Mobile executor detected - using mobile-compatible methods")
+        print("[Premium Sniper] BUY SCRIPT TODAY")
     end
 end
 
 -- Run mobile detection
 task.spawn(DetectMobileExecutor)
 
-print("═══════════════════════════════════════════════")
-print("  GrowGarden2 - PREMIUM SNIPER LOADED")
-print("  Commands:")
-print("  - getgenv().StartPetSniper()")
-print("  - getgenv().StopPetSniper()")
-print("  - getgenv().TogglePetSniper()")
-print("  - getgenv().GetSniperStats()")
-print("  - getgenv().AddSnipeTarget('PetName')")
-print("  - getgenv().SetMaxPrice(1000000)")
-print("  - getgenv().ForceServerHop()")
-print("═══════════════════════════════════════════════")
 
 if getgenv().AutoBuyPets then
     StartSniperLoop()
