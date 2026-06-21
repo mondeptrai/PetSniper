@@ -345,34 +345,83 @@ end
 
 -- ULTIMATE PURCHASE - Tries all methods for 100% success
 local function UltimatePurchase(pet)
-    if not pet or not pet.Model then return false end
+    if not pet or not pet.PetName then return false end
     
-    local prompt = pet.Prompt
-    local model = pet.Model
+    local petName = pet.PetName
     local position = pet.Position
     
     -- Instant teleport to pet
     InstantTeleport(position + Vector3.new(0, 3, 0))
-    task.wait(0.01)
+    task.wait(0.05)
     
-    -- Try multiple purchase methods in rapid succession
+    -- Re-find the pet model fresh after teleport
+    local model = nil
+    local rootPart = nil
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:GetAttribute("PetName") == petName then
+            local rp = obj:FindFirstChild("RootPart") or obj:FindFirstChild("HumanoidRootPart")
+            if rp and rp:IsDescendantOf(workspace) then
+                local dist = (rp.Position - position).Magnitude
+                if dist < 30 then
+                    model = obj
+                    rootPart = rp
+                    break
+                end
+            end
+        end
+    end
+    
+    -- If we can't find the model, assume it was purchased or despawned
+    if not model then
+        return true
+    end
+    
+    -- Get fresh prompt reference
+    local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
+    
+    -- If no prompt, pet might already be purchased/despawning
+    if not prompt then
+        return true
+    end
+    
+    -- Try multiple purchase methods
     local methods = {
-        function() return FirePromptCustom(prompt) end,
-        function() return FirePromptSignal(prompt) end,
-        function() return FirePromptHold(prompt) end,
-        function() return FirePromptVM(prompt) end,
-        function() return FirePromptRemote(prompt, model) end,
+        function() FirePromptCustom(prompt) end,
+        function() FirePromptSignal(prompt) end,
+        function() FirePromptHold(prompt) end,
+        function() FirePromptVM(prompt) end,
+        function() FirePromptRemote(prompt, model) end,
     }
     
-    -- Fire all methods simultaneously for maximum chance
+    -- Fire all methods
     for _, method in ipairs(methods) do
         task.spawn(method)
     end
     
-    task.wait(0.02)
+    task.wait(0.1)
     
-    -- Check if pet was purchased
-    return not (model and model:IsDescendantOf(workspace))
+    -- Final keypress
+    if prompt and prompt.KeyboardKeyCode then
+        VirtualInputManager:SendKeyEvent(true, prompt.KeyboardKeyCode, false, game)
+        task.wait()
+        VirtualInputManager:SendKeyEvent(false, prompt.KeyboardKeyCode, false, game)
+    end
+    
+    task.wait(0.05)
+    
+    -- Check if model is still valid (visible, has prompt)
+    if not model:IsDescendantOf(workspace) then
+        return true
+    end
+    
+    local newPrompt = rootPart and rootPart:FindFirstChildWhichIsA("ProximityPrompt")
+    if not newPrompt then
+        -- No prompt anymore = purchased!
+        return true
+    end
+    
+    return false
 end
 
 local function TryPurchasePet(pet, retryCount)
@@ -631,8 +680,11 @@ local function StartSniperLoop()
                     return (hrp.Position - a.Position).Magnitude < (hrp.Position - b.Position).Magnitude
                 end)
                 
-                -- Process all qualifying pets
+                -- Process qualifying pets - ONE AT A TIME
+                -- After each purchase (success or fail), re-scan instead of continuing
                 local maxPurchasesPerRound = 10
+                local didPurchaseThisScan = false
+                
                 for i, pet in ipairs(pets) do
                     if not IsSniping or not getgenv().AutoBuyPets then break end
                     if purchasedThisRound >= maxPurchasesPerRound then break end
@@ -652,7 +704,7 @@ local function StartSniperLoop()
                             local petRarity = pet.PetInfo and pet.PetInfo.Rarity or "Unknown"
                             local petPrice = pet.Price > 0 and pet.Price or (pet.PetInfo and pet.PetInfo.Price) or 0
                             
-                            -- Teleport if out of range
+                            -- Teleport ONLY if out of range (for the first pet)
                             if distance > (getgenv().SniperRange or 100) then
                                 InstantTeleport(pet.Position + Vector3.new(0, 3, 0))
                             end
@@ -671,21 +723,30 @@ local function StartSniperLoop()
                                     Price = petPrice, Time = os.date("%H:%M:%S"),
                                 })
                                 
-                                print(string.format("[Premium Sniper] ✓ SNIPED %s [%s] - %s (%.1fms)",
+                                print(string.format("[Premium Sniper] SNIPED %s [%s] - %s (%.1fms)",
                                     pet.PetName, petRarity, FormatNumber(petPrice), purchaseTime))
                                 
                                 SendDiscordWebhook(pet.PetName, petRarity, petPrice, isHugeOrBig)
+                                
+                                -- SUCCESS: Re-scan immediately for more pets in this server
+                                didPurchaseThisScan = true
+                                break
                             else
+                                -- FAILED: Don't continue to next pet, re-scan instead
+                                -- The server might have more pets appearing
                                 SnipeStats.TotalMissed = SnipeStats.TotalMissed + 1
-                                print("[Premium Sniper] ✗ Missed: " .. pet.PetName)
+                                print("[Premium Sniper] Missed: " .. pet.PetName .. " - Re-scanning...")
+                                
+                                -- Wait a tiny bit then re-scan
+                                task.wait(0.05)
+                                didPurchaseThisScan = true
+                                break
                             end
                             
                             -- Update success rate
                             if SnipeStats.TotalAttempts > 0 then
                                 SnipeStats.SuccessRate = (SnipeStats.TotalSniped / SnipeStats.TotalAttempts) * 100
                             end
-                            
-                            task.wait(getgenv().SniperDelay or 0)
                         end
                     end
                 end
