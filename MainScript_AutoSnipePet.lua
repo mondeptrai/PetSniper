@@ -93,6 +93,12 @@ end)
 
 local Player = Players.LocalPlayer
 
+-- Purchase Remote
+local PurchaseRemote = nil
+pcall(function()
+    PurchaseRemote = game:GetService("ReplicatedStorage"):FindFirstChild("SharedModules"):FindFirstChild("Packet")
+end)
+
 -- ============================================
 -- STATE TRACKING
 -- ============================================
@@ -184,55 +190,118 @@ local function FindWildPets()
         local map = workspace:FindFirstChild("Map")
         if not map then return end
         
+        -- Check WildPetSpawns first
         local wildPetSpawns = map:FindFirstChild("WildPetSpawns")
-        if not wildPetSpawns then return end
+        if wildPetSpawns then
+            for _, petModel in ipairs(wildPetSpawns:GetChildren()) do
+                if petModel:IsA("Model") and petModel.Name:find("WildPet") then
+                    -- Extract pet name from model name
+                    local petName = nil
+                    local nameParts = string.split(petModel.Name, "_")
+                    if #nameParts >= 2 then
+                        petName = nameParts[2]
+                        -- Handle names with spaces
+                        if petName == "GoldenDragonfly" then
+                            petName = "Golden Dragonfly"
+                        elseif petName == "BlackDragon" then
+                            petName = "Black Dragon"
+                        elseif petName == "IceSerpent" then
+                            petName = "Ice Serpent"
+                        end
+                    end
+                    
+                    -- Find RootPart
+                    local rootPart = petModel:FindFirstChild("RootPart")
+                    if not rootPart then
+                        rootPart = petModel:FindFirstChild("HumanoidRootPart")
+                    end
+                    
+                    if rootPart and rootPart:IsDescendantOf(workspace) then
+                        -- Find ProximityPrompt (BuyPrompt)
+                        local buyPrompt = rootPart:FindFirstChild("BuyPrompt")
+                        
+                        -- Get pet info
+                        local petInfo = GetPetInfo(petName)
+                        if not petInfo then
+                            petInfo = GetPetInfo(nameParts[2])
+                        end
+                        
+                        local price = petInfo and petInfo.Price or 0
+                        local rarity = petInfo and petInfo.Rarity or "Common"
+                        
+                        table.insert(pets, {
+                            Model = petModel,
+                            RootPart = rootPart,
+                            BuyPrompt = buyPrompt,
+                            PetName = petName or "Unknown",
+                            PetInfo = petInfo,
+                            Price = price,
+                            Rarity = rarity,
+                            Position = rootPart.Position,
+                        })
+                    end
+                end
+            end
+        end
         
-        for _, petModel in ipairs(wildPetSpawns:GetChildren()) do
-            if petModel:IsA("Model") and petModel.Name:find("WildPet") then
-                -- Extract pet name from model name
-                local petName = nil
-                local nameParts = string.split(petModel.Name, "_")
-                if #nameParts >= 2 then
-                    petName = nameParts[2]
-                    -- Handle names with spaces
-                    if petName == "GoldenDragonfly" then
-                        petName = "Golden Dragonfly"
-                    elseif petName == "BlackDragon" then
-                        petName = "Black Dragon"
-                    elseif petName == "IceSerpent" then
-                        petName = "Ice Serpent"
-                    end
-                end
-                
-                -- Find RootPart
-                local rootPart = petModel:FindFirstChild("RootPart")
-                if not rootPart then
-                    rootPart = petModel:FindFirstChild("HumanoidRootPart")
-                end
-                
-                if rootPart and rootPart:IsDescendantOf(workspace) then
-                    -- Find ProximityPrompt (BuyPrompt)
-                    local buyPrompt = rootPart:FindFirstChild("BuyPrompt")
-                    
-                    -- Get pet info
-                    local petInfo = GetPetInfo(petName)
-                    if not petInfo then
-                        petInfo = GetPetInfo(nameParts[2])
+        -- Also check WildPetRef (used by purchase remote)
+        local wildPetRef = map:FindFirstChild("WildPetRef")
+        if wildPetRef then
+            for _, petModel in ipairs(wildPetRef:GetChildren()) do
+                if petModel:IsA("Model") and petModel.Name:find("WildPet") then
+                    -- Check if already in list
+                    local alreadyExists = false
+                    for _, existingPet in ipairs(pets) do
+                        if existingPet.Model == petModel then
+                            alreadyExists = true
+                            break
+                        end
                     end
                     
-                    local price = petInfo and petInfo.Price or 0
-                    local rarity = petInfo and petInfo.Rarity or "Common"
-                    
-                    table.insert(pets, {
-                        Model = petModel,
-                        RootPart = rootPart,
-                        BuyPrompt = buyPrompt,
-                        PetName = petName or "Unknown",
-                        PetInfo = petInfo,
-                        Price = price,
-                        Rarity = rarity,
-                        Position = rootPart.Position,
-                    })
+                    if not alreadyExists then
+                        -- Extract pet name from model name
+                        local petName = nil
+                        local nameParts = string.split(petModel.Name, "_")
+                        if #nameParts >= 2 then
+                            petName = nameParts[2]
+                            if petName == "GoldenDragonfly" then
+                                petName = "Golden Dragonfly"
+                            elseif petName == "BlackDragon" then
+                                petName = "Black Dragon"
+                            elseif petName == "IceSerpent" then
+                                petName = "Ice Serpent"
+                            end
+                        end
+                        
+                        -- Find RootPart
+                        local rootPart = petModel:FindFirstChild("RootPart")
+                        if not rootPart then
+                            rootPart = petModel:FindFirstChild("HumanoidRootPart")
+                        end
+                        
+                        if rootPart and rootPart:IsDescendantOf(workspace) then
+                            local buyPrompt = rootPart and rootPart:FindFirstChild("BuyPrompt")
+                            
+                            local petInfo = GetPetInfo(petName)
+                            if not petInfo then
+                                petInfo = GetPetInfo(nameParts[2])
+                            end
+                            
+                            local price = petInfo and petInfo.Price or 0
+                            local rarity = petInfo and petInfo.Rarity or "Common"
+                            
+                            table.insert(pets, {
+                                Model = petModel,
+                                RootPart = rootPart,
+                                BuyPrompt = buyPrompt,
+                                PetName = petName or "Unknown",
+                                PetInfo = petInfo,
+                                Price = price,
+                                Rarity = rarity,
+                                Position = rootPart.Position,
+                            })
+                        end
+                    end
                 end
             end
         end
@@ -323,10 +392,21 @@ local function TryTriggerProximityPrompt(prompt)
             keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.E
         end)
         
-        -- Method 1: VirtualInputManager
+        -- Get HoldDuration (if any)
+        local holdDuration = 0
+        pcall(function()
+            holdDuration = prompt.HoldDuration or 0
+        end)
+        
+        -- Method 1: VirtualInputManager with hold
         if VirtualInputManager then
+            -- Hold the key for the duration
             VirtualInputManager:SendKeyDown(keyCode)
-            task.wait(0.005)
+            if holdDuration > 0 then
+                task.wait(holdDuration + 0.05)
+            else
+                task.wait(0.05)
+            end
             VirtualInputManager:SendKeyUp(keyCode)
         end
         
@@ -338,7 +418,12 @@ local function TryTriggerProximityPrompt(prompt)
             end
         end
         
-        -- Method 3: FirePromptButton
+        -- Method 3: Fire HoldCompleted directly
+        if holdDuration > 0 and prompt.HoldCompleted then
+            firesignal(prompt.HoldCompleted)
+        end
+        
+        -- Method 4: Fire PromptButton if exists
         local button = prompt:FindFirstChild("PromptButtonFrame")
         if button then
             local buttonClick = button:FindFirstChildOfClass("TextButton") or button:FindFirstChildOfClass("ImageButton")
@@ -358,6 +443,44 @@ end
 
 local function ExecutePurchase(pet)
     local model = pet.Model
+    if not model then return false end
+    
+    -- Try to find the RemoteEvent for purchasing
+    local remote = PurchaseRemote
+    if not remote then
+        pcall(function()
+            remote = game:GetService("ReplicatedStorage"):FindFirstChild("SharedModules"):FindFirstChild("Packet")
+        end)
+    end
+    
+    if not remote then
+        -- Fallback: try ProximityPrompt method
+        return ExecutePurchaseProximityPrompt(pet)
+    end
+    
+    -- Try multiple times
+    for attempt = 1, 10 do
+        -- Check if pet was already purchased (removed from workspace)
+        if not model:IsDescendantOf(workspace) then
+            return true
+        end
+        
+        -- Fire the purchase remote with the pet model
+        pcall(function()
+            remote:FireServer(model)
+        end)
+        
+        -- Wait a bit between attempts
+        task.wait(0.05)
+    end
+    
+    -- Check if pet was purchased
+    return not model:IsDescendantOf(workspace)
+end
+
+-- Fallback ProximityPrompt purchase method
+local function ExecutePurchaseProximityPrompt(pet)
+    local model = pet.Model
     local buyPrompt = pet.BuyPrompt
     
     if not model then return false end
@@ -375,6 +498,12 @@ local function ExecutePurchase(pet)
         return false
     end
     
+    -- Get HoldDuration
+    local holdDuration = 0
+    pcall(function()
+        holdDuration = buyPrompt.HoldDuration or 0
+    end)
+    
     -- Try multiple times
     for attempt = 1, 10 do
         -- Check if pet was already purchased (removed from workspace)
@@ -382,22 +511,26 @@ local function ExecutePurchase(pet)
             return true
         end
         
-        -- Teleport very close to the pet
+        -- Teleport very close to the pet (in front of it)
         local petPos = rootPart.Position
-        InstantTeleport(petPos + Vector3.new(0, 2, 3))
-        task.wait(getgenv().SniperConfig.TeleportDelay or 0.05)
+        local lookDir = rootPart.CFrame.LookVector
+        InstantTeleport(petPos + Vector3.new(0, 2, 0) + (lookDir * 5))
         
-        -- Try to trigger the ProximityPrompt
+        -- Wait for proximity prompt to activate
+        task.wait(getgenv().SniperConfig.TeleportDelay or 0.1)
+        
+        -- Wait for prompt to appear (proximity prompt has fade in)
+        task.wait(0.15)
+        
+        -- Try to trigger the ProximityPrompt with proper hold
         TryTriggerProximityPrompt(buyPrompt)
         
-        -- Also try direct firesignal methods
-        pcall(function()
-            if buyPrompt.HoldCompleted then
-                firesignal(buyPrompt.HoldCompleted)
-            end
-        end)
+        -- If has HoldDuration, wait for it
+        if holdDuration > 0 then
+            task.wait(holdDuration + 0.1)
+        end
         
-        task.wait(0.02)
+        task.wait(0.05)
     end
     
     -- Check if pet was purchased
