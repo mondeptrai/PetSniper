@@ -1,28 +1,4 @@
---[[
-    ╔══════════════════════════════════════════════════════════════╗
-    ║      GrowGarden2 - AUTO SNIPE PET PREMIUM (Core Logic)  ║
-    ║         Ultimate High-Speed Pet Sniping System            ║
-    ╚══════════════════════════════════════════════════════════════╝
-    
-    VERSION: PREMIUM 3.0 - NO E KEY REQUIRED
-    FEATURES:
-    - 100% Purchase Accuracy (Direct Function Calls)
-    - Buy WITHOUT pressing E key
-    - Direct Game Function Invocation
-    - Smart Server Hopping (Low Pop + Long Running Servers)
-    - Instant Teleportation (CFrame Bypass)
-    - Anti-AFK System
-    - Real-time Pet Spawn Prediction
-    - Performance Optimized
-    
-    USAGE:
-    1. Edit LoaderSnipePet.lua to configure settings
-    2. Run LoaderSnipePet.lua - it will auto-load this script
-]]
 
--- ============================================
--- WAIT FOR GAME LOAD (for autoexec folder)
--- ============================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -47,7 +23,7 @@ repeat task.wait() until Player:FindFirstChild("PlayerGui")
 task.wait(2)
 
 print("[Premium Sniper] Game loaded! Initializing Premium Sniper...")
-print("[Premium Sniper] VERSION 3.0 - NO E KEY REQUIRED!")
+print("[Premium Sniper] ULTRA PRO MAX VIP VIP PRO PRO")
 
 -- ============================================
 -- PREMIUM CONFIGURATION LOADER
@@ -779,7 +755,7 @@ local function FireRemoteEvent(model)
     return success
 end
 
--- ULTIMATE PURCHASE - Uses ALL methods for maximum success rate
+-- ULTIMATE PURCHASE - Uses ALL methods for maximum success rate (SPEED OPTIMIZED)
 local function UltimatePurchase(pet)
     if not pet or not pet.PetName then return false, "Invalid pet data" end
     
@@ -795,7 +771,7 @@ local function UltimatePurchase(pet)
     local model = nil
     local rootPart = nil
     
-    -- Re-find the pet model to get fresh info
+    -- Re-find the pet model quickly
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj:GetAttribute("PetName") == petName then
             local rp = obj:FindFirstChild("RootPart") or obj:FindFirstChild("HumanoidRootPart")
@@ -816,120 +792,77 @@ local function UltimatePurchase(pet)
         return true, "Pet already gone"
     end
     
-    -- CRITICAL: Wait until pet is properly spawned (not despawning)
-    task.wait(0.02)
+    -- Quick spawn check
+    task.wait(0.01)
     if not model:IsDescendantOf(workspace) then
         PurchaseInProgress = false
         return true, "Pet despawned"
     end
     
-    -- Teleport RIGHT next to the pet (in front)
+    -- INSTANT Teleport - no delay!
     InstantTeleport(rootPart.Position + Vector3.new(0, 0, -2))
-    task.wait(0.08) -- Wait longer for server to register position
-    
-    -- Re-verify pet is still there
-    if not model:IsDescendantOf(workspace) then
-        PurchaseInProgress = false
-        return true, "Pet despawned during teleport"
-    end
     
     -- Get the prompt
     local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
     
-    -- Log prompt info for debugging
+    -- Print purchase attempt
     pcall(function()
-        print("[Purchase] Attempting purchase for: " .. petName .. " (" .. FormatNumber(pet.Price or 0) .. ")")
-        if prompt then
-            print("[Purchase] Prompt found - HoldDuration: " .. tostring(prompt.HoldDuration) .. ", ActionText: " .. tostring(prompt.ActionText))
-        end
+        print("[Purchase] Buying: " .. petName .. " (" .. FormatNumber(pet.Price or 0) .. ")")
     end)
     
-    -- === PHASE 0: Direct Purchase (NO E KEY!) ===
-    -- Try to call game functions directly without needing the prompt
-    local directSuccess, directReason = DirectPurchasePet(model, petName, pet.Price or 0)
-    if directSuccess then
-        task.wait(0.1)
-        if not model:IsDescendantOf(workspace) then
-            PurchaseInProgress = false
-            return true, "SUCCESS via direct: " .. directReason
-        end
-    end
-    
-    -- === PHASE 1: If we have a prompt, try all prompt methods ===
-    if prompt then
-        -- VirtualInputManager (simulates real keypress)
-        if VirtualInputManager then
-            FirePromptVM(prompt)
-            task.wait(0.03)
-            
-            if not model:IsDescendantOf(workspace) then
-                PurchaseInProgress = false
-                return true, "Pet purchased via VirtualInputManager"
-            end
-        end
+    -- === PHASE 0: RAPID FIRE - All methods at once (NO WAITING!) ===
+    -- Fire ALL purchase methods simultaneously for maximum speed
+    for i = 1, 8 do
+        -- Direct purchase (NO E KEY!)
+        DirectPurchasePet(model, petName, pet.Price or 0)
         
-        -- Firesignal Triggered event (instant)
-        FirePromptInstant(prompt)
-        FirePromptComplete(prompt)
-        task.wait(0.03)
-        
-        if not model:IsDescendantOf(workspace) then
-            PurchaseInProgress = false
-            return true, "Pet purchased via firesignal"
-        end
-        
-        -- Rapid fire with ALL methods (10 attempts)
-        for i = 1, 10 do
-            FirePromptInstant(prompt)
-            FirePromptComplete(prompt)
-            FirePromptVM(prompt)
-            RapidFirePurchase(prompt)
-            -- Also try direct purchase again
-            DirectPurchasePet(model, petName, pet.Price or 0)
-            task.wait(0.02)
-            
-            if not model:IsDescendantOf(workspace) then
-                PurchaseInProgress = false
-                return true, "Pet purchased via rapid fire"
-            end
-        end
-    end
-    
-    -- === PHASE 2: Try Remote purchase methods ===
-    FireRemotePurchase(model)
-    FireRemoteEvent(model)
-    task.wait(0.03)
-    
-    if not model:IsDescendantOf(workspace) then
-        PurchaseInProgress = false
-        return true, "Pet purchased via remote"
-    end
-    
-    -- === PHASE 3: Teleport directly on pet and maximum fire ===
-    InstantTeleport(rootPart.Position)
-    task.wait(0.05)
-    
-    if not model:IsDescendantOf(workspace) then
-        PurchaseInProgress = false
-        return true, "Pet purchased after direct teleport"
-    end
-    
-    -- Maximum fire at close range
-    for i = 1, 15 do
+        -- All prompt methods
         if prompt then
             FirePromptInstant(prompt)
             FirePromptComplete(prompt)
             FirePromptVM(prompt)
             RapidFirePurchase(prompt)
         end
+        
+        -- Remote methods
         FireRemotePurchase(model)
         FireRemoteEvent(model)
-        DirectPurchasePet(model, petName, pet.Price or 0)
-        task.wait(0.01)
         
+        -- Check immediately - no wait!
         if not model:IsDescendantOf(workspace) then
             PurchaseInProgress = false
-            return true, "Pet purchased via close-range max fire"
+            return true, "SUCCESS! Pet purchased"
+        end
+    end
+    
+    -- === PHASE 1: Teleport directly on pet ===
+    InstantTeleport(rootPart.Position)
+    
+    -- Check
+    if not model:IsDescendantOf(workspace) then
+        PurchaseInProgress = false
+        return true, "Pet purchased after teleport"
+    end
+    
+    -- === PHASE 2: MAXIMUM OVERDRIVE - Rapid fire all methods ===
+    for i = 1, 12 do
+        -- Fire everything at once
+        DirectPurchasePet(model, petName, pet.Price or 0)
+        
+        if prompt then
+            FirePromptInstant(prompt)
+            FirePromptComplete(prompt)
+            FirePromptVM(prompt)
+            RapidFirePurchase(prompt)
+        end
+        
+        FireRemotePurchase(model)
+        FireRemoteEvent(model)
+        
+        -- Ultra-fast check
+        if not model:IsDescendantOf(workspace) then
+            PurchaseInProgress = false
+            return true, "Pet purchased in OVERDRIVE"
         end
     end
     
@@ -972,7 +905,7 @@ local function FindWildPets()
     local pets = {}
     
     pcall(function()
-        -- Enhanced spawn location detection
+        -- ULTRA-FAST search locations
         local searchLocations = {
             workspace.Map and workspace.Map:FindFirstChild("WildPetSpawns"),
             workspace.Map and workspace.Map:FindFirstChild("WildPets"),
@@ -982,16 +915,10 @@ local function FindWildPets()
             workspace:FindFirstChild("Spawns"),
         }
         
-        -- Also search for individual pet models
-        for _, child in pairs(workspace:GetDescendants()) do
-            if child:IsA("Model") and child.Name:match("WildPet") then
-                table.insert(searchLocations, child)
-            end
-        end
-        
+        -- Fast iteration
         for _, spawnFolder in ipairs(searchLocations) do
-            if spawnFolder and (spawnFolder:IsA("Folder") or spawnFolder:IsA("Model")) then
-                local children = spawnFolder:IsA("Model") and {spawnFolder} or spawnFolder:GetChildren()
+            if spawnFolder then
+                local children = (spawnFolder:IsA("Model")) and {spawnFolder} or spawnFolder:GetChildren()
                 
                 for _, obj in ipairs(children) do
                     if obj:IsA("Model") then
@@ -1004,7 +931,7 @@ local function FindWildPets()
                             
                             local petInfo = GetPetInfo(petName)
                             
-                            -- If we can't find pet by name, try to match by price
+                            -- Try to match by price if no name match
                             if not petInfo and price > 0 then
                                 for name, data in pairs(PetData) do
                                     if data.Price == price then
@@ -1215,10 +1142,9 @@ local function StartSniperLoop()
                             local petRarity = pet.PetInfo and pet.PetInfo.Rarity or "Unknown"
                             local petPrice = pet.Price > 0 and pet.Price or (pet.PetInfo and pet.PetInfo.Price) or 0
                             
-                            -- CRITICAL: Only teleport if we're far enough from the pet
-                            if distance > 3 then
+                            -- ULTRA-FAST: Teleport only if really far
+                            if distance > 5 then
                                 InstantTeleport(pet.Position + Vector3.new(0, 3, 0))
-                                task.wait(0.08) -- Wait for teleport to complete
                             end
                             
                             local purchaseStart = tick()
@@ -1240,24 +1166,19 @@ local function StartSniperLoop()
                                 
                                 SendDiscordWebhook(pet.PetName, petRarity, petPrice, isHugeOrBig)
                                 
-                                -- SUCCESS: Wait for server to settle, then re-scan for remaining pets
-                                task.wait(0.1) -- Wait for server to process purchase
-                                
-                                -- Re-scan immediately to check for more pets
-                                break -- Exit loop and re-scan in next iteration
+                                -- IMMEDIATELY continue to next pet (don't break!)
+                                continue
                             else
-                                -- FAILED: Mark as attempted and re-scan
-                                -- This prevents wasting time on pets that are being taken by others
+                                -- FAILED: Only mark as failed if we tried multiple times
                                 SnipeStats.TotalMissed = SnipeStats.TotalMissed + 1
-                                print("[Premium Sniper] Missed: " .. pet.PetName .. " - Marking and re-scanning...")
+                                print("[Premium Sniper] Missed: " .. pet.PetName)
                                 
                                 -- Mark this specific pet as failed
                                 local modelPath = tostring(pet.Model)
                                 AttemptedPets[modelPath] = "failed"
                                 
-                                -- Wait briefly then re-scan
-                                task.wait(0.05)
-                                break -- Exit loop and re-scan in next iteration
+                                -- Continue to next pet IMMEDIATELY
+                                continue
                             end
                             
                             -- Update success rate
@@ -1268,18 +1189,11 @@ local function StartSniperLoop()
                     end
                 end
                 
-                -- If no purchases this round, check if there are still unprocessed pets
-                -- If we processed all pets without buying, the server might be empty
-                if purchasedThisRound == 0 and #pets == 0 then
-                    -- Server appears empty, will trigger server hop if configured
-                    hasQualifyingPet = false
-                end
-                
-                -- Smart Server Hop - Hop immediately when no qualifying pets
-                if getgenv().AutoServerHop and not hasQualifyingPet then
+                -- If no qualifying pets found, trigger server hop
+                if getgenv().AutoServerHop and not hasQualifyingPet and #pets == 0 then
                     local timeSinceQualifying = tick() - LastQualifyingPetTime
                     if timeSinceQualifying >= getgenv().ServerHopDelay then
-                        print("[Premium Sniper] No qualifying pets found. Hopping to new server...")
+                        print("[Premium Sniper] No pets found. Hopping to new server...")
                         SnipeStats.TotalHops = SnipeStats.TotalHops + 1
                         CurrentServerStartTime = tick()
                         AttemptedPets = {}
@@ -1290,11 +1204,11 @@ local function StartSniperLoop()
                 end
             end)
             
-            task.wait(0.03) -- 30ms loop for faster detection
+            task.wait(0.01) -- ULTRA-FAST: 10ms loop
         end
         
         IsSniping = false
-        print("[Premium Sniper] Stopped!")
+        print("[Premium Sniper] Dung lai ngay :v !")
     end)
 end
 
@@ -1479,7 +1393,7 @@ getgenv().GetSniperStats = GetSniperStats
 getgenv().AddSnipeTarget = function(petName)
     if not getgenv().PetFilter then getgenv().PetFilter = {} end
     table.insert(getgenv().PetFilter, petName)
-    print("[Premium Sniper] Added target: " .. petName)
+    print("[Premium Sniper] Hehehe " .. petName)
 end
 
 getgenv().RemoveSnipeTarget = function(petName)
@@ -1495,11 +1409,11 @@ end
 
 getgenv().SetMaxPrice = function(price)
     getgenv().AutoBuyPetsMaxPrice = price
-    print("[Premium Sniper] Max price set to: " .. FormatNumber(price))
+    print("[Premium Sniper] LOL " .. FormatNumber(price))
 end
 
 getgenv().ForceServerHop = function()
-    print("[Premium Sniper] Forced server hop!")
+    print("[Premium Sniper] okay")
     CurrentServerStartTime = tick()
     AttemptedPets = {}
     PremiumServerHop()
@@ -1542,24 +1456,13 @@ local function DetectMobileExecutor()
     getgenv().isMobileExecutor = isMobile
     
     if isMobile then
-        print("[Premium Sniper] Mobile executor detected - using mobile-compatible methods")
+        print("[Premium Sniper] Buy SNIPER PET TODAY")
     end
 end
 
 -- Run mobile detection
 task.spawn(DetectMobileExecutor)
 
-print("═══════════════════════════════════════════════")
-print("  GrowGarden2 - PREMIUM SNIPER LOADED")
-print("  Commands:")
-print("  - getgenv().StartPetSniper()")
-print("  - getgenv().StopPetSniper()")
-print("  - getgenv().TogglePetSniper()")
-print("  - getgenv().GetSniperStats()")
-print("  - getgenv().AddSnipeTarget('PetName')")
-print("  - getgenv().SetMaxPrice(1000000)")
-print("  - getgenv().ForceServerHop()")
-print("═══════════════════════════════════════════════")
 
 if getgenv().AutoBuyPets then
     StartSniperLoop()
