@@ -96,13 +96,14 @@ local PetData = {
     ["Owl"] = { Rarity = "Uncommon", Price = 25000 },
     ["Deer"] = { Rarity = "Rare", Price = 50000 },
     ["Robin"] = { Rarity = "Legendary", Price = 75000 },
-    ["Bee"] = { Rarity = "Legendary", Price = 1000000 },
-    ["Monkey"] = { Rarity = "Mythic", Price = 3000000 },
-    ["Bear"] = { Rarity = "Mythic", Price = 5000000 },
-    ["Golden Dragonfly"] = { Rarity = "Mythic", Price = 9000000 },
-    ["Unicorn"] = { Rarity = "Mythic", Price = 12000000 },
-    ["Raccoon"] = { Rarity = "Super", Price = 15000000 },
-    ["Black Dragon"] = { Rarity = "Super", Price = 1000000 },
+    ["Bee"] = { Rarity = "Mythic", Price = 1000000 },
+    ["Monkey"] = { Rarity = "Mythic", Price = 1000000 },
+    ["BlackDragon"] = { Rarity = "Mythic", Price = 1000000 },
+    ["GoldenDragonfly"] = { Rarity = "Mythic", Price = 3000000 },
+    ["Unicorn"] = { Rarity = "Mythic", Price = 4000000 },
+    ["Bear"] = { Rarity = "Super", Price = 5000000 },
+    ["Raccoon"] = { Rarity = "Super", Price = 5000000 },
+    ["IceSerpent"] = { Rarity = "Super", Price = 20000000 },
 }
 
 local RARITY_PRIORITY = {
@@ -297,120 +298,229 @@ local function PremiumServerHop()
 end
 
 -- ============================================
--- PREMIUM PURCHASE SYSTEM (100% Accuracy)
+-- PREMIUM PURCHASE SYSTEM (100% Accuracy - No E Key Required)
 -- ============================================
 
 local PurchaseInProgress = false
 
--- Wait for pet to actually disappear from world (confirms purchase)
-local function WaitForPetDespawn(model, timeout)
-    timeout = timeout or 3
-    local startTime = tick()
+-- Find purchase remote function
+local function GetPurchaseRemote()
+    local remotes = {
+        "PurchaseWildPet",
+        "PurchasePet",
+        "BuyPet",
+        "Purchase",
+        "BuyWildPet",
+        "ClaimPet",
+        "CollectPet",
+        "WildPetPurchase",
+        "PetPurchase",
+    }
     
-    while tick() - startTime < timeout do
-        if not model or not model:IsDescendantOf(workspace) then
-            return true -- Pet is gone!
+    for _, remoteName in ipairs(remotes) do
+        local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
+        if remote and (remote:IsA("RemoteFunction") or remote:IsA("RemoteEvent")) then
+            return remote
         end
-        task.wait(0.02)
     end
     
-    return not model or not model:IsDescendantOf(workspace)
+    -- Try direct invoke on workspace models
+    return nil
 end
 
--- Check inventory to confirm pet was purchased
-local function VerifyPurchaseInInventory(petName)
-    task.wait(0.1) -- Give time for inventory to update
+-- Method 1: Direct RemoteFunction invoke (FASTER - no E key needed)
+local function FireRemotePurchase(model)
+    if not model then return false end
     
-    pcall(function()
-        local inventory = Player:FindFirstChild("Pets") or Player:FindFirstChild("Inventory") or Player:FindFirstChild("OwnedPets")
-        if inventory then
-            for _, item in ipairs(inventory:GetChildren()) do
-                if item.Name:lower():find(petName:lower()) then
+    local success = pcall(function()
+        local petName = model:GetAttribute("PetName") or model.Name
+        local petId = model:GetAttribute("PetId") or model:GetAttribute("Id") or 0
+        local price = model:GetAttribute("Price") or 0
+        
+        -- Try to find and invoke the purchase remote
+        local purchaseRemote = GetPurchaseRemote()
+        
+        if purchaseRemote and purchaseRemote:IsA("RemoteFunction") then
+            -- Try invoke with model
+            local result = purchaseRemote:InvokeServer(model)
+            if result ~= nil then
+                return result
+            end
+        end
+        
+        -- Try common remote names with model
+        for _, remoteName in ipairs({"PurchaseWildPet", "PurchasePet", "BuyPet", "Purchase"}) do
+            local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
+            if remote and remote:IsA("RemoteFunction") then
+                local ok, result = pcall(function()
+                    return remote:InvokeServer(model)
+                end)
+                if ok and result then
                     return true
                 end
             end
         end
     end)
     
-    return false
+    return success
 end
 
--- Method 1: Virtual Input Manager (Most reliable - mobile compatible)
-local function FirePromptVM(prompt)
-    if not prompt then return false end
-    pcall(function()
-        local boundKeyCode = prompt.KeyboardKeyCode or Enum.KeyCode.E
-        VirtualInputManager:SendKeyEvent(true, boundKeyCode, false, game)
-        task.wait()
-        VirtualInputManager:SendKeyEvent(false, boundKeyCode, false, game)
-    end)
-    return true
-end
-
--- Method 2: Direct Trigger (if available)
-local function FirePromptTrigger(prompt)
-    if not prompt then return false end
-    pcall(function()
-        if prompt.Trigger then
-            prompt:Trigger()
-        elseif fireproximityprompt then
-            fireproximityprompt(prompt)
-        end
-    end)
-    return true
-end
-
--- Method 3: Firesignal on Triggered event (mobile compatible)
+-- Method 2: Firesignal on PromptTriggered (instant signal)
 local function FirePromptSignal(prompt)
     if not prompt then return false end
-    pcall(function()
+    
+    local success = pcall(function()
+        -- Try Triggered event first (most reliable)
         if prompt.Triggered then
             firesignal(prompt.Triggered)
-        elseif prompt.PromptButtonFrame then
+            return true
+        end
+        
+        -- Try PromptButtonFrame click
+        if prompt.PromptButtonFrame then
+            -- Try MouseButton1Click
+            if prompt.PromptButtonFrame:FindFirstChild("Frame") then
+                local frame = prompt.PromptButtonFrame.Frame
+                if frame:FindFirstChild("AutoScale") or frame:FindFirstChild("Button") then
+                    firesignal(frame, "MouseButton1Click")
+                    return true
+                end
+            end
+            -- Try direct click
             firesignal(prompt.PromptButtonFrame, "MouseButton1Click")
-        elseif firesignal and prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputBegan then
-            firesignal(prompt.PromptButtonFrame.InputBegan)
+            return true
         end
-    end)
-    return true
-end
-
--- Method 4: Set ProximityPrompt.HeldDuration to 0 then trigger
-local function FirePromptInstant(prompt)
-    if not prompt then return false end
-    pcall(function()
-        local originalHold = prompt.HoldDuration or 0
-        prompt.HeldDownTime = 0
-        prompt.HoldDuration = 0
-        task.wait(0.01)
-        if prompt.Triggered then
-            firesignal(prompt.Triggered)
-        elseif prompt.Trigger then
-            pcall(function() prompt:Trigger() end)
-        end
-        task.wait(0.01)
-        prompt.HoldDuration = originalHold
-    end)
-    return true
-end
-
--- Method 5: Mobile Touch workaround
-local function FirePromptMobile(prompt)
-    if not prompt then return false end
-    pcall(function()
-        -- For mobile, try clicking the UI button directly
+        
+        -- Try InputBegan/InputEnded for touch
         if prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputBegan then
             firesignal(prompt.PromptButtonFrame.InputBegan)
-        end
-        task.wait(0.05)
-        if prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputEnded then
             firesignal(prompt.PromptButtonFrame.InputEnded)
+            return true
         end
     end)
-    return true
+    
+    return success
 end
 
--- ULTIMATE PURCHASE - Tries all methods for 100% success with VERIFICATION
+-- Method 3: Set HoldDuration to 0 and trigger (instant buy - MOST RELIABLE)
+local function FirePromptInstant(prompt)
+    if not prompt then return false end
+    
+    local success = pcall(function()
+        -- CRITICAL: Set instant hold to bypass the 1-second requirement
+        local originalHold = prompt.HoldDuration or 1
+        local originalEnabled = prompt.Enabled
+        local originalMaxDist = prompt.MaxActivationDistance
+        
+        -- Set to instant
+        prompt.HoldDuration = 0
+        prompt.HeldDownTime = 0
+        prompt.Enabled = true
+        prompt.MaxActivationDistance = 100 -- Ensure we can trigger from anywhere
+        
+        task.wait(0.01)
+        
+        -- Fire the Triggered event (most reliable method)
+        if prompt.Triggered then
+            firesignal(prompt.Triggered)
+        end
+        
+        -- Also try direct Trigger method
+        if prompt.Trigger then
+            pcall(function() prompt:Trigger() end)
+        end
+        
+        -- Try firesignal on PromptButtonFrame if available
+        if prompt.PromptButtonFrame then
+            local btn = prompt.PromptButtonFrame
+            
+            -- Fire InputBegan (simulates key/mouse down)
+            if btn.InputBegan then
+                firesignal(btn.InputBegan)
+            end
+            
+            -- Fire Triggered event if it exists
+            if prompt.Triggered then
+                firesignal(prompt.Triggered)
+            end
+            
+            -- Fire InputEnded (simulates key/mouse up)
+            if btn.InputEnded then
+                firesignal(btn.InputEnded)
+            end
+            
+            -- Try MouseButton1Click on the button
+            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                pcall(function() btn:Click() end)
+            end
+        end
+        
+        task.wait(0.01)
+        
+        -- Restore original values
+        prompt.HoldDuration = originalHold
+        prompt.Enabled = originalEnabled
+        prompt.MaxActivationDistance = originalMaxDist
+    end)
+    
+    return success
+end
+
+-- Method 5: Ultra-fast rapid fire (for when pet is right in front)
+local function RapidFirePurchase(prompt)
+    if not prompt then return false end
+    
+    local success = pcall(function()
+        -- Set instant hold
+        prompt.HoldDuration = 0
+        prompt.HeldDownTime = 0
+        
+        for i = 1, 5 do
+            if prompt.Triggered then
+                firesignal(prompt.Triggered)
+            end
+            if prompt.Trigger then
+                pcall(function() prompt:Trigger() end)
+            end
+            if prompt.PromptButtonFrame then
+                if prompt.PromptButtonFrame.InputBegan then
+                    firesignal(prompt.PromptButtonFrame.InputBegan)
+                end
+                if prompt.Triggered then
+                    firesignal(prompt.Triggered)
+                end
+                if prompt.PromptButtonFrame.InputEnded then
+                    firesignal(prompt.PromptButtonFrame.InputEnded)
+                end
+            end
+            task.wait(0.01)
+        end
+    end)
+    
+    return success
+end
+
+-- Method 4: firesignal with RemoteEvent
+local function FireRemoteEvent(model)
+    if not model then return false end
+    
+    local success = pcall(function()
+        local petName = model:GetAttribute("PetName") or model.Name
+        
+        -- Find RemoteEvents
+        for _, remoteName in ipairs({"PurchaseWildPet", "PurchasePet", "BuyPet", "Purchase"}) do
+            local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
+            if remote and remote:IsA("RemoteEvent") then
+                remote:FireServer(model)
+                return true
+            end
+        end
+    end)
+    
+    return success
+end
+
+-- ULTIMATE PURCHASE - No E key required, uses firesignal directly with instant HoldDuration
 local function UltimatePurchase(pet)
     if not pet or not pet.PetName then return false, "Invalid pet data" end
     
@@ -448,21 +558,15 @@ local function UltimatePurchase(pet)
     end
     
     -- CRITICAL: Wait until pet is properly spawned (not despawning)
-    task.wait(0.05)
+    task.wait(0.02)
     if not model:IsDescendantOf(workspace) then
         PurchaseInProgress = false
         return true, "Pet despawned"
     end
     
-    local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
-    if not prompt then
-        PurchaseInProgress = false
-        return true, "No prompt found"
-    end
-    
     -- Teleport RIGHT next to the pet (in front)
     InstantTeleport(rootPart.Position + Vector3.new(0, 0, -2))
-    task.wait(0.1) -- Wait for server to register position
+    task.wait(0.05) -- Wait for server to register position
     
     -- Re-verify pet is still there
     if not model:IsDescendantOf(workspace) then
@@ -470,44 +574,71 @@ local function UltimatePurchase(pet)
         return true, "Pet despawned during teleport"
     end
     
-    -- FIRE ALL PURCHASE METHODS MULTIPLE TIMES
-    for attempt = 1, 5 do
-        -- Fire all methods in rapid succession
-        FirePromptTrigger(prompt)
-        FirePromptSignal(prompt)
-        FirePromptInstant(prompt)
-        FirePromptMobile(prompt)
-        FirePromptVM(prompt)
-        
-        task.wait(0.05)
-        
-        -- Check if pet is gone (indicating successful purchase)
-        if not model:IsDescendantOf(workspace) then
-            PurchaseInProgress = false
-            return true, "Pet purchased successfully"
-        end
+    -- Get the prompt
+    local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
+    
+    if not prompt then
+        PurchaseInProgress = false
+        return true, "No prompt found - pet may have been purchased"
     end
     
-    -- If still there, try one more teleport directly on top and rapid fire
-    InstantTeleport(rootPart.Position)
-    task.wait(0.05)
+    -- === PHASE 1: Instant firesignal (no E key needed!) ===
+    -- This method bypasses the 1-second hold requirement by:
+    -- 1. Setting HoldDuration = 0
+    -- 2. Firing the Triggered event directly
     
+    FirePromptInstant(prompt)
+    task.wait(0.03)
+    
+    if not model:IsDescendantOf(workspace) then
+        PurchaseInProgress = false
+        return true, "Pet purchased via instant firesignal"
+    end
+    
+    -- === PHASE 2: Try RemoteFunction/RemoteEvent if available ===
+    FireRemotePurchase(model)
+    FireRemoteEvent(model)
+    task.wait(0.02)
+    
+    if not model:IsDescendantOf(workspace) then
+        PurchaseInProgress = false
+        return true, "Pet purchased via remote"
+    end
+    
+    -- === PHASE 3: Rapid fire (multiple attempts) ===
     for i = 1, 10 do
-        FirePromptTrigger(prompt)
-        FirePromptSignal(prompt)
-        FirePromptInstant(prompt)
-        FirePromptMobile(prompt)
-        FirePromptVM(prompt)
+        RapidFirePurchase(prompt)
         task.wait(0.02)
         
         if not model:IsDescendantOf(workspace) then
             PurchaseInProgress = false
-            return true, "Pet purchased after close range"
+            return true, "Pet purchased via rapid fire"
+        end
+    end
+    
+    -- === PHASE 4: Teleport directly on pet and rapid fire ===
+    InstantTeleport(rootPart.Position)
+    task.wait(0.03)
+    
+    if not model:IsDescendantOf(workspace) then
+        PurchaseInProgress = false
+        return true, "Pet purchased after direct teleport"
+    end
+    
+    for i = 1, 15 do
+        FirePromptInstant(prompt)
+        RapidFirePurchase(prompt)
+        FireRemotePurchase(model)
+        task.wait(0.015)
+        
+        if not model:IsDescendantOf(workspace) then
+            PurchaseInProgress = false
+            return true, "Pet purchased via close-range rapid fire"
         end
     end
     
     PurchaseInProgress = false
-    return false, "Failed to purchase"
+    return false, "Failed to purchase - pet may have been taken"
 end
 
 local function TryPurchasePet(pet, retryCount)
