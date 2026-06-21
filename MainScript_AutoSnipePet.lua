@@ -44,7 +44,7 @@ task.wait(1)
 local VERIFY_CONFIG = {
     MAX_RETRIES = 3,
     RETRY_DELAY = 3,
-    SERVER_URL = "http://YOUR_LOCAL_IP:3000",
+    SERVER_URL = "http://localhost:3000",
 }
 
 local function KickPlayer(reason)
@@ -66,53 +66,61 @@ local function VerifyLicense()
         return false
     end
 
-    print("[Premium Sniper] Verifying license key...")
+    print("[Premium Sniper] Verifying license key: " .. key:sub(1, 4) .. "****")
 
     local hwid = GetHWID()
     local url = VERIFY_CONFIG.SERVER_URL .. "/verify-key?key=" .. key .. "&hwid=" .. hwid
     local retries = 0
 
     while retries < VERIFY_CONFIG.MAX_RETRIES do
+        print("[Premium Sniper] Attempt " .. (retries + 1) .. "/" .. VERIFY_CONFIG.MAX_RETRIES .. "...")
+
         local success, result = pcall(function()
             return HttpService:GetAsync(url, false, {["Security"] = "x-csrf-token"})
         end)
 
-        if success then
+        if not success then
+            print("[Premium Sniper] Connection failed")
+            retries = retries + 1
+            if retries < VERIFY_CONFIG.MAX_RETRIES then
+                print("[Premium Sniper] Retrying in " .. VERIFY_CONFIG.RETRY_DELAY .. " seconds...")
+                task.wait(VERIFY_CONFIG.RETRY_DELAY)
+            end
+        else
+            print("[Premium Sniper] Response received, checking...")
             local decodeSuccess, data = pcall(function()
                 return HttpService:JSONDecode(result)
             end)
 
-            if decodeSuccess then
-                if data.status == "KEY_VALID" then
-                    print("[Premium Sniper] License verified successfully!")
-                    getgenv().LICENSE_VERIFIED = true
-                    return true
-                elseif data.status == "KEY_INVALID" then
-                    print("[Premium Sniper] Invalid license key!")
-                    KickPlayer("Invalid license key!\nPlease check your key and try again.")
-                    return false
-                elseif data.status == "KEY_EXPIRED" then
-                    print("[Premium Sniper] License expired!")
-                    KickPlayer("License expired!\nPlease renew your subscription.")
-                    return false
-                elseif data.status == "HWID_MISMATCH" or data.status == "KEY_ALREADY_USED" then
-                    print("[Premium Sniper] Key already used on another machine!")
-                    KickPlayer("This key has already been activated on another machine.")
-                    return false
-                else
-                    print("[Premium Sniper] Server error: " .. (data.error or "Unknown"))
-                end
-            else
+            if not decodeSuccess then
                 print("[Premium Sniper] Invalid server response")
+                retries = retries + 1
+                if retries < VERIFY_CONFIG.MAX_RETRIES then
+                    task.wait(VERIFY_CONFIG.RETRY_DELAY)
+                end
+            elseif data.status == "KEY_VALID" then
+                print("[Premium Sniper] License verified successfully!")
+                getgenv().LICENSE_VERIFIED = true
+                return true
+            elseif data.status == "KEY_INVALID" then
+                print("[Premium Sniper] Invalid license key!")
+                KickPlayer("Invalid license key!\nPlease check your key and try again.")
+                return false
+            elseif data.status == "KEY_EXPIRED" then
+                print("[Premium Sniper] License expired!")
+                KickPlayer("License expired!\nPlease renew your subscription.")
+                return false
+            elseif data.status == "HWID_MISMATCH" or data.status == "KEY_ALREADY_USED" then
+                print("[Premium Sniper] Key already used on another machine!")
+                KickPlayer("This key has already been activated on another machine.")
+                return false
+            else
+                print("[Premium Sniper] Server error: " .. tostring(data.error or "Unknown"))
+                retries = retries + 1
+                if retries < VERIFY_CONFIG.MAX_RETRIES then
+                    task.wait(VERIFY_CONFIG.RETRY_DELAY)
+                end
             end
-        else
-            print("[Premium Sniper] Connection failed (attempt " .. (retries + 1) .. "/" .. VERIFY_CONFIG.MAX_RETRIES .. ")")
-        end
-
-        retries = retries + 1
-        if retries < VERIFY_CONFIG.MAX_RETRIES then
-            print("[Premium Sniper] Retrying in " .. VERIFY_CONFIG.RETRY_DELAY .. " seconds...")
-            task.wait(VERIFY_CONFIG.RETRY_DELAY)
         end
     end
 
