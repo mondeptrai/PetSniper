@@ -155,7 +155,7 @@ print("[Premium Sniper] Game loaded! Initializing Premium Sniper...")
 -- ============================================
 
 if not getgenv().SniperConfig then
-    warn("[Premium Sniper] Please run LoaderSnipePet.lua first!")
+    warn("[Premium Sniper] SniperConfig not found!")
 end
 
 -- Load settings
