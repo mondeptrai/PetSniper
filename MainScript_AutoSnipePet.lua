@@ -83,6 +83,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- ============================================
@@ -149,17 +150,28 @@ local function FormatNumber(num)
     return tostring(num)
 end
 
--- INSTANT TELEPORT - Bypasses normal teleport limits
+-- INSTANT TELEPORT - Bypasses normal teleport limits (mobile compatible)
 local function InstantTeleport(pos)
     local character = Player.Character
-    if character then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
+    if not character then return false end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    -- Primary method: CFrame teleport
+    hrp.CFrame = CFrame.new(pos)
+    
+    -- Mobile executors may need extra confirmation
+    if (getgenv().isMobileExecutor or false) == false then
+        -- Try to verify teleport worked
+        task.wait(0.02)
+        if (hrp.Position - Vector3.new(pos.X, pos.Y, pos.Z)).Magnitude > 1 then
+            -- Teleport might have been reverted, try again
             hrp.CFrame = CFrame.new(pos)
-            return true
         end
     end
-    return false
+    
+    return true
 end
 
 -- Get actual proximity prompt distance from pet model
@@ -288,7 +300,42 @@ end
 -- PREMIUM PURCHASE SYSTEM (100% Accuracy)
 -- ============================================
 
--- Method 1: Virtual Input Manager (Most reliable)
+local PurchaseInProgress = false
+
+-- Wait for pet to actually disappear from world (confirms purchase)
+local function WaitForPetDespawn(model, timeout)
+    timeout = timeout or 3
+    local startTime = tick()
+    
+    while tick() - startTime < timeout do
+        if not model or not model:IsDescendantOf(workspace) then
+            return true -- Pet is gone!
+        end
+        task.wait(0.02)
+    end
+    
+    return not model or not model:IsDescendantOf(workspace)
+end
+
+-- Check inventory to confirm pet was purchased
+local function VerifyPurchaseInInventory(petName)
+    task.wait(0.1) -- Give time for inventory to update
+    
+    pcall(function()
+        local inventory = Player:FindFirstChild("Pets") or Player:FindFirstChild("Inventory") or Player:FindFirstChild("OwnedPets")
+        if inventory then
+            for _, item in ipairs(inventory:GetChildren()) do
+                if item.Name:lower():find(petName:lower()) then
+                    return true
+                end
+            end
+        end
+    end)
+    
+    return false
+end
+
+-- Method 1: Virtual Input Manager (Most reliable - mobile compatible)
 local function FirePromptVM(prompt)
     if not prompt then return false end
     pcall(function()
@@ -313,7 +360,7 @@ local function FirePromptTrigger(prompt)
     return true
 end
 
--- Method 3: Firesignal on Triggered event
+-- Method 3: Firesignal on Triggered event (mobile compatible)
 local function FirePromptSignal(prompt)
     if not prompt then return false end
     pcall(function()
@@ -321,76 +368,71 @@ local function FirePromptSignal(prompt)
             firesignal(prompt.Triggered)
         elseif prompt.PromptButtonFrame then
             firesignal(prompt.PromptButtonFrame, "MouseButton1Click")
+        elseif firesignal and prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputBegan then
+            firesignal(prompt.PromptButtonFrame.InputBegan)
         end
     end)
     return true
 end
 
--- Method 4: Keypress via firesignal on frame
-local function FirePromptKeypress(prompt)
-    if not prompt then return false end
-    pcall(function()
-        if prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputHook then
-            firesignal(prompt.PromptButtonFrame.InputHook, Enum.KeyCode.E)
-        elseif prompt.KeyboardKeyCode then
-            local key = prompt.KeyboardKeyCode
-            VirtualInputManager:SendKeyEvent(true, key, false, game)
-            task.wait()
-            VirtualInputManager:SendKeyEvent(false, key, false, game)
-        end
-    end)
-    return true
-end
-
--- Method 5: Direct Invoke (Remote)
-local function FirePromptRemote(prompt, model)
-    if not prompt or not model then return false end
-    pcall(function()
-        local actionName = model:GetAttribute("ActionName") or "PurchasePet"
-        local remote = ReplicatedStorage:FindFirstChild(actionName) or 
-                       ReplicatedStorage:FindFirstChild("PurchaseWildPet") or
-                       ReplicatedStorage:FindFirstChild("PurchasePet")
-        if remote and remote:IsA("RemoteFunction") then
-            remote:InvokeServer(model)
-        end
-    end)
-    return true
-end
-
--- Method 6: Set ProximityPrompt.HeldDuration to 0 then trigger
+-- Method 4: Set ProximityPrompt.HeldDuration to 0 then trigger
 local function FirePromptInstant(prompt)
     if not prompt then return false end
     pcall(function()
-        local originalHold = prompt.HoldDuration
+        local originalHold = prompt.HoldDuration or 0
+        prompt.HeldDownTime = 0
         prompt.HoldDuration = 0
-        task.wait()
+        task.wait(0.01)
         if prompt.Triggered then
             firesignal(prompt.Triggered)
         elseif prompt.Trigger then
-            prompt:Trigger()
+            pcall(function() prompt:Trigger() end)
         end
+        task.wait(0.01)
         prompt.HoldDuration = originalHold
     end)
     return true
 end
 
--- ULTIMATE PURCHASE - Tries all methods for 100% success
+-- Method 5: Mobile Touch workaround
+local function FirePromptMobile(prompt)
+    if not prompt then return false end
+    pcall(function()
+        -- For mobile, try clicking the UI button directly
+        if prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputBegan then
+            firesignal(prompt.PromptButtonFrame.InputBegan)
+        end
+        task.wait(0.05)
+        if prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputEnded then
+            firesignal(prompt.PromptButtonFrame.InputEnded)
+        end
+    end)
+    return true
+end
+
+-- ULTIMATE PURCHASE - Tries all methods for 100% success with VERIFICATION
 local function UltimatePurchase(pet)
-    if not pet or not pet.PetName then return false end
+    if not pet or not pet.PetName then return false, "Invalid pet data" end
     
     local petName = pet.PetName
     local position = pet.Position
     
-    -- Re-find the pet model to get fresh info
+    -- Prevent concurrent purchases
+    if PurchaseInProgress then
+        return false, "Purchase already in progress"
+    end
+    PurchaseInProgress = true
+    
     local model = nil
     local rootPart = nil
     
+    -- Re-find the pet model to get fresh info
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj:GetAttribute("PetName") == petName then
             local rp = obj:FindFirstChild("RootPart") or obj:FindFirstChild("HumanoidRootPart")
             if rp and rp:IsDescendantOf(workspace) then
                 local dist = (rp.Position - position).Magnitude
-                if dist < 50 then
+                if dist < 100 then
                     model = obj
                     rootPart = rp
                     break
@@ -399,59 +441,73 @@ local function UltimatePurchase(pet)
         end
     end
     
-    -- If we can't find the model, assume it was purchased or despawned
+    -- If we can't find the model, pet might already be gone
     if not model then
-        return true
+        PurchaseInProgress = false
+        return true, "Pet already gone"
     end
     
-    -- Get prompt distance and teleport RIGHT next to the pet
-    local promptDistance = GetPromptDistance(model)
-    InstantTeleport(rootPart.Position + Vector3.new(0, 0, -2)) -- Stand in front
-    task.wait(0.08) -- Wait for server to register
-    
-    -- Re-check model is still there
+    -- CRITICAL: Wait until pet is properly spawned (not despawning)
+    task.wait(0.05)
     if not model:IsDescendantOf(workspace) then
-        return true
+        PurchaseInProgress = false
+        return true, "Pet despawned"
     end
     
-    -- Get fresh prompt reference
     local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
-    
-    -- If no prompt, pet might already be purchased/despawning
     if not prompt then
-        return true
+        PurchaseInProgress = false
+        return true, "No prompt found"
     end
     
-    -- Try all purchase methods multiple times for reliability
-    for attempt = 1, 3 do
-        -- Fire all methods
+    -- Teleport RIGHT next to the pet (in front)
+    InstantTeleport(rootPart.Position + Vector3.new(0, 0, -2))
+    task.wait(0.1) -- Wait for server to register position
+    
+    -- Re-verify pet is still there
+    if not model:IsDescendantOf(workspace) then
+        PurchaseInProgress = false
+        return true, "Pet despawned during teleport"
+    end
+    
+    -- FIRE ALL PURCHASE METHODS MULTIPLE TIMES
+    for attempt = 1, 5 do
+        -- Fire all methods in rapid succession
         FirePromptTrigger(prompt)
         FirePromptSignal(prompt)
         FirePromptInstant(prompt)
-        FirePromptKeypress(prompt)
+        FirePromptMobile(prompt)
         FirePromptVM(prompt)
-        FirePromptRemote(prompt, model)
         
-        task.wait(0.1)
+        task.wait(0.05)
         
-        -- Check if purchased
+        -- Check if pet is gone (indicating successful purchase)
         if not model:IsDescendantOf(workspace) then
-            return true
-        end
-        
-        local newPrompt = rootPart and rootPart:FindFirstChildWhichIsA("ProximityPrompt")
-        if not newPrompt then
-            return true
-        end
-        
-        -- If still here on last attempt, try one more teleport closer
-        if attempt == 2 then
-            InstantTeleport(rootPart.Position)
-            task.wait(0.05)
+            PurchaseInProgress = false
+            return true, "Pet purchased successfully"
         end
     end
     
-    return false
+    -- If still there, try one more teleport directly on top and rapid fire
+    InstantTeleport(rootPart.Position)
+    task.wait(0.05)
+    
+    for i = 1, 10 do
+        FirePromptTrigger(prompt)
+        FirePromptSignal(prompt)
+        FirePromptInstant(prompt)
+        FirePromptMobile(prompt)
+        FirePromptVM(prompt)
+        task.wait(0.02)
+        
+        if not model:IsDescendantOf(workspace) then
+            PurchaseInProgress = false
+            return true, "Pet purchased after close range"
+        end
+    end
+    
+    PurchaseInProgress = false
+    return false, "Failed to purchase"
 end
 
 local function TryPurchasePet(pet, retryCount)
@@ -465,14 +521,14 @@ local function TryPurchasePet(pet, retryCount)
     
     SnipeStats.TotalAttempts = SnipeStats.TotalAttempts + 1
     
-    local success = UltimatePurchase(pet)
+    local success, reason = UltimatePurchase(pet)
     
     if success then
         -- Remove from attempted since we got it
         AttemptedPets[modelPath] = nil
         return true
     elseif retryCount < getgenv().RetrySniperPet then
-        task.wait(0.01)
+        task.wait(0.02)
         return TryPurchasePet(pet, retryCount + 1)
     else
         -- Only mark as permanently failed after all retries exhausted
@@ -711,9 +767,7 @@ local function StartSniperLoop()
                 end)
                 
                 -- Process qualifying pets - ONE AT A TIME
-                -- After each purchase (success or fail), re-scan instead of continuing
                 local maxPurchasesPerRound = 10
-                local didPurchaseThisScan = false
                 
                 for i, pet in ipairs(pets) do
                     if not IsSniping or not getgenv().AutoBuyPets then break end
@@ -734,9 +788,10 @@ local function StartSniperLoop()
                             local petRarity = pet.PetInfo and pet.PetInfo.Rarity or "Unknown"
                             local petPrice = pet.Price > 0 and pet.Price or (pet.PetInfo and pet.PetInfo.Price) or 0
                             
-                            -- Teleport ONLY if out of range (for the first pet)
-                            if distance > (getgenv().SniperRange or 100) then
+                            -- CRITICAL: Only teleport if we're far enough from the pet
+                            if distance > 3 then
                                 InstantTeleport(pet.Position + Vector3.new(0, 3, 0))
+                                task.wait(0.08) -- Wait for teleport to complete
                             end
                             
                             local purchaseStart = tick()
@@ -758,19 +813,24 @@ local function StartSniperLoop()
                                 
                                 SendDiscordWebhook(pet.PetName, petRarity, petPrice, isHugeOrBig)
                                 
-                                -- SUCCESS: Re-scan immediately for more pets in this server
-                                didPurchaseThisScan = true
-                                break
-                            else
-                                -- FAILED: Don't continue to next pet, re-scan instead
-                                -- The server might have more pets appearing
-                                SnipeStats.TotalMissed = SnipeStats.TotalMissed + 1
-                                print("[Premium Sniper] Missed: " .. pet.PetName .. " - Re-scanning...")
+                                -- SUCCESS: Wait for server to settle, then re-scan for remaining pets
+                                task.wait(0.1) -- Wait for server to process purchase
                                 
-                                -- Wait a tiny bit then re-scan
+                                -- Re-scan immediately to check for more pets
+                                break -- Exit loop and re-scan in next iteration
+                            else
+                                -- FAILED: Mark as attempted and re-scan
+                                -- This prevents wasting time on pets that are being taken by others
+                                SnipeStats.TotalMissed = SnipeStats.TotalMissed + 1
+                                print("[Premium Sniper] Missed: " .. pet.PetName .. " - Marking and re-scanning...")
+                                
+                                -- Mark this specific pet as failed
+                                local modelPath = tostring(pet.Model)
+                                AttemptedPets[modelPath] = "failed"
+                                
+                                -- Wait briefly then re-scan
                                 task.wait(0.05)
-                                didPurchaseThisScan = true
-                                break
+                                break -- Exit loop and re-scan in next iteration
                             end
                             
                             -- Update success rate
@@ -781,10 +841,11 @@ local function StartSniperLoop()
                     end
                 end
                 
-                -- If we purchased pets this round, immediately re-scan for more
-                if purchasedThisRound > 0 then
-                    task.wait(0.02)
-                    -- Will pick up remaining pets in next iteration
+                -- If no purchases this round, check if there are still unprocessed pets
+                -- If we processed all pets without buying, the server might be empty
+                if purchasedThisRound == 0 and #pets == 0 then
+                    -- Server appears empty, will trigger server hop if configured
+                    hasQualifyingPet = false
                 end
                 
                 -- Smart Server Hop - Hop immediately when no qualifying pets
@@ -802,7 +863,7 @@ local function StartSniperLoop()
                 end
             end)
             
-            task.wait(0.05) -- 50ms loop for faster detection
+            task.wait(0.03) -- 30ms loop for faster detection
         end
         
         IsSniping = false
@@ -1020,6 +1081,46 @@ end
 -- ============================================
 -- INITIALIZATION
 -- ============================================
+
+-- Detect if running on mobile executor
+local function DetectMobileExecutor()
+    -- Check common mobile executor signatures
+    local isMobile = false
+    
+    -- Delta executor detection
+    if shared and (shared.Delta or shared.delta or _G.Delta or _G.delta) then
+        isMobile = true
+    end
+    
+    -- Fluxus detection
+    if shared and (shared.Fluxus or shared.fluxus or _G.Fluxus or _G.fluxus) then
+        isMobile = true
+    end
+    
+    -- Arceus X detection
+    if shared and (shared.Arceus or shared.arceus or _G.Arceus or _G.arceus) then
+        isMobile = true
+    end
+    
+    -- Check for missing PC-only features
+    if not syn then
+        isMobile = true
+    end
+    
+    -- Check for touch capability (mobile devices)
+    if UserInputService and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+        isMobile = true
+    end
+    
+    getgenv().isMobileExecutor = isMobile
+    
+    if isMobile then
+        print("[Premium Sniper] Mobile executor detected - using mobile-compatible methods")
+    end
+end
+
+-- Run mobile detection
+task.spawn(DetectMobileExecutor)
 
 print("═══════════════════════════════════════════════")
 print("  GrowGarden2 - PREMIUM SNIPER LOADED")
