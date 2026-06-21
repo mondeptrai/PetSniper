@@ -18,6 +18,12 @@
     The Loader handles all configuration and license key setup.
 ]]
 
+-- Check if loaded directly (not via loader)
+if not getgenv().LICENSE_KEY then
+    error("[Premium Sniper] Please run LoaderSnipePet.lua first!")
+    return
+end
+
 -- ============================================
 -- WAIT FOR GAME LOAD
 -- ============================================
