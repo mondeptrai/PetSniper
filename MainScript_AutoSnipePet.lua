@@ -1,67 +1,70 @@
---[[
-    ╔══════════════════════════════════════════════════════════════╗
-    ║           GrowGarden2 - Auto Sniper Pet (Standalone)    ║
-    ║              High-Speed Pet Sniping System               ║
-    ╚══════════════════════════════════════════════════════════════╝
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║     GrowGarden2 - Working Pet Sniper     ║
+-- ║        Auto-Snipe Pets Using ProximityPrompt         ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+-- ============================================
+-- CONFIGURATION
+-- ============================================
+
+getgenv().SniperConfig = {
     
-    CONFIGURATION: Modify the _G settings below to customize behavior
-]]
-
--- ============================================
--- CONFIGURATION LOADER (ConfigLoaderSnipePet)
--- ============================================
-
--- Master toggle for auto pet sniping
-getgenv().AutoBuyPets = getgenv().AutoBuyPets or false
-
--- Maximum price to pay for a pet (0 = no limit)
-getgenv().AutoBuyPetsMaxPrice = getgenv().AutoBuyPetsMaxPrice or 0
-
--- Rarity filter: Only buy pets of these rarities (true = enabled, false = disabled)
--- Example: Only buy Mythic and Super pets
-getgenv().AutoBuyPetsRarityFilter = getgenv().AutoBuyPetsRarityFilter or {
-    ["Common"] = false,
-    ["Uncommon"] = false,
-    ["Rare"] = false,
-    ["Epic"] = false,
-    ["Legendary"] = false,
-    ["Mythic"] = true,
-    ["Super"] = true,
+    -- Main toggle
+    Enabled = true,                
+    
+    -- Maximum price (0 = no limit)
+    MaxPrice = 0,                  
+    
+    -- Rarity Filter (true = buy, false = skip)
+    RarityFilter = {
+        ["Common"] = true,         
+        ["Uncommon"] = true,      
+        ["Rare"] = true,          
+        ["Epic"] = true,
+        ["Legendary"] = true,      
+        ["Mythic"] = true,         
+        ["Super"] = true,          
+    },
+    
+    -- Performance settings
+    SniperDelay = 0.1,            
+    TeleportDelay = 0.05,          
 }
 
--- Specific pet names to filter (if empty, buy any pet that passes rarity/price)
--- Example: {"Frog", "Bunny", "Owl"} - only buy these pets
-getgenv().PetFilter = getgenv().PetFilter or {}
-
--- Delay between purchase attempts (prevents spam/detection)
-getgenv().SniperDelay = getgenv().SniperDelay or 0.1
-
--- Max retry attempts if purchase fails
-getgenv().RetrySniperPet = getgenv().RetrySniperPet or 3
-
--- Teleport range (how close player needs to be)
-getgenv().SniperRange = getgenv().SniperRange or 50
-
 -- ============================================
--- PET DATA (Reference Table)
+-- PET DATA
 -- ============================================
 
 local PetData = {
+    -- Common Pets
     ["Frog"] = { Rarity = "Common", Price = 10000 },
     ["Bunny"] = { Rarity = "Common", Price = 20000 },
+    
+    -- Uncommon Pets
     ["Owl"] = { Rarity = "Uncommon", Price = 25000 },
+    
+    -- Rare Pets
     ["Deer"] = { Rarity = "Rare", Price = 50000 },
+    
+    -- Legendary Pets
     ["Robin"] = { Rarity = "Legendary", Price = 75000 },
     ["Bee"] = { Rarity = "Legendary", Price = 1000000 },
-    ["Monkey"] = { Rarity = "Mythic", Price = 3000000 },
+    
+    -- Mythic Pets
+    ["Monkey"] = { Rarity = "Mythic", Price = 1000000 },
+    ["GoldenDragonfly"] = { Rarity = "Mythic", Price = 3000000 },
+    ["Golden Dragonfly"] = { Rarity = "Mythic", Price = 3000000 },
+    ["Unicorn"] = { Rarity = "Mythic", Price = 4000000 },
     ["Bear"] = { Rarity = "Mythic", Price = 5000000 },
-    ["Golden Dragonfly"] = { Rarity = "Mythic", Price = 9000000 },
-    ["Unicorn"] = { Rarity = "Mythic", Price = 12000000 },
-    ["Raccoon"] = { Rarity = "Super", Price = 15000000 },
+    
+    -- Super Pets
+    ["Raccoon"] = { Rarity = "Super", Price = 5000000 },
+    ["BlackDragon"] = { Rarity = "Super", Price = 1000000 },
     ["Black Dragon"] = { Rarity = "Super", Price = 1000000 },
+    ["IceSerpent"] = { Rarity = "Super", Price = 20000000 },
+    ["Ice Serpent"] = { Rarity = "Super", Price = 20000000 },
 }
 
--- Rarity priority (higher = more valuable)
 local RARITY_PRIORITY = {
     Common = 1,
     Uncommon = 2,
@@ -70,6 +73,8 @@ local RARITY_PRIORITY = {
     Legendary = 5,
     Mythic = 6,
     Super = 7,
+    Huge = 10,
+    Big = 9,
 }
 
 -- ============================================
@@ -77,33 +82,31 @@ local RARITY_PRIORITY = {
 -- ============================================
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
+local VirtualInputManager = nil
+
+pcall(function()
+    local env = getsenv and getsenv(game.Players.LocalPlayer)
+    if env then
+        VirtualInputManager = env.VirtualInputManager
+    end
+end)
 
 local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- ============================================
 -- STATE TRACKING
 -- ============================================
 
-local ActivePets = {} -- Currently spawned pets
-local SnipedPets = {} -- Successfully sniped pets this session
-local LastSnipeTime = 0
+local SnipedPets = {}
 local IsSniping = false
-local SnipeStats = {
-    TotalSniped = 0,
-    TotalSpent = 0,
-    TotalMissed = 0,
-}
+local PurchaseInProgress = false
 
 -- ============================================
 -- UTILITY FUNCTIONS
 -- ============================================
 
 local function GetSheckles()
-    pcall(function()
+    local success, result = pcall(function()
         local leaderstats = Player:FindFirstChild("leaderstats")
         if leaderstats then
             local sheckles = leaderstats:FindFirstChild("Sheckles")
@@ -112,11 +115,14 @@ local function GetSheckles()
             end
         end
     end)
-    return 0
+    return success and result or 0
 end
 
 local function FormatNumber(num)
-    if num >= 1000000 then
+    if not num then return "0" end
+    if num >= 1000000000 then
+        return string.format("%.1fB", num / 1000000000)
+    elseif num >= 1000000 then
         return string.format("%.1fM", num / 1000000)
     elseif num >= 1000 then
         return string.format("%.1fK", num / 1000)
@@ -125,7 +131,37 @@ local function FormatNumber(num)
     end
 end
 
-local function TeleportTo(pos)
+local function IsHugeOrBig(petName)
+    if not petName then return false, "Normal" end
+    local nameLower = petName:lower()
+    if nameLower:find("huge") then
+        return true, "Huge"
+    elseif nameLower:find("big") then
+        return true, "Big"
+    end
+    return false, "Normal"
+end
+
+local function GetPetInfo(petName)
+    if not petName then return nil end
+    
+    if PetData[petName] then
+        return PetData[petName]
+    end
+    
+    local withoutSpace = petName:gsub(" ", "")
+    if PetData[withoutSpace] then
+        return PetData[withoutSpace]
+    end
+    
+    return nil
+end
+
+-- ============================================
+-- TELEPORT SYSTEM
+-- ============================================
+
+local function InstantTeleport(pos)
     pcall(function()
         local character = Player.Character
         if character then
@@ -137,130 +173,66 @@ local function TeleportTo(pos)
     end)
 end
 
-local function IsHugeOrBig(petName)
-    if not petName then return false end
-    local nameLower = petName:lower()
-    return nameLower:find("huge") or nameLower:find("big")
-end
-
-local function GetPetInfo(petName)
-    -- First check PetData table
-    if PetData[petName] then
-        return PetData[petName]
-    end
-    
-    -- Fallback: Try to find partial match
-    for name, data in pairs(PetData) do
-        if petName:lower():find(name:lower()) then
-            return data
-        end
-    end
-    
-    return nil
-end
-
-local function GetPetPriceFromPrompt(prompt)
-    if not prompt then return 0 end
-    local objectText = prompt.ObjectText or ""
-    local priceStr = objectText:gsub(",", ""):gsub("%$", "")
-    local price = tonumber(priceStr:match("%d+")) or 0
-    return price
-end
-
 -- ============================================
--- CONFIGURATION CHECK FUNCTIONS
--- ============================================
-
-local function ShouldBuyPet(petName, petInfo, price)
-    -- Check for Huge/Big (absolute priority)
-    if IsHugeOrBig(petName) then
-        print("[Sniper] Detected HUGE/BIG pet: " .. petName .. " - PRIORITY BUY!")
-        return true, true -- (shouldBuy, isHugeOrBig)
-    end
-    
-    -- Check specific pet filter
-    if next(getgenv().PetFilter) then
-        local found = false
-        for _, filterName in ipairs(getgenv().PetFilter) do
-            if petName:lower() == filterName:lower() then
-                found = true
-                break
-            end
-        end
-        if not found then
-            return false, false
-        end
-    end
-    
-    -- Check rarity filter
-    if petInfo then
-        local rarity = petInfo.Rarity
-        local rarityEnabled = getgenv().AutoBuyPetsRarityFilter[rarity]
-        if rarityEnabled == false then
-            return false, false
-        end
-    end
-    
-    -- Check price filter (0 = no limit)
-    local maxPrice = getgenv().AutoBuyPetsMaxPrice
-    if maxPrice > 0 and price > maxPrice then
-        return false, false
-    end
-    
-    return true, false
-end
-
--- ============================================
--- PET DETECTION (Mainscript_AutoSnipePet)
+-- PET DETECTION - FIXED FOR PROXIMITYPROMPT
 -- ============================================
 
 local function FindWildPets()
     local pets = {}
     
     pcall(function()
-        -- Try common spawn locations
-        local spawnLocations = {
-            workspace.Map and workspace.Map:FindFirstChild("WildPetSpawns"),
-            workspace:FindFirstChild("WildPetSpawns"),
-            workspace.Map and workspace.Map:FindFirstChild("WildPets"),
-        }
+        local map = workspace:FindFirstChild("Map")
+        if not map then return end
         
-        for _, spawnFolder in ipairs(spawnLocations) do
-            if spawnFolder and spawnFolder:IsA("Folder") or spawnFolder:IsA("Model") then
-                for _, obj in pairs(spawnFolder:GetChildren()) do
-                    if obj:IsA("Model") and obj.Name:find("WildPet") then
-                        local petName = obj:GetAttribute("PetName")
-                        local rootPart = obj:FindFirstChild("RootPart")
-                        
-                        if rootPart and rootPart:IsDescendantOf(workspace) then
-                            local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
-                            local price = prompt and GetPetPriceFromPrompt(prompt) or 0
-                            
-                            -- Get pet info from our data or from prompt
-                            local petInfo = GetPetInfo(petName)
-                            if not petInfo and price > 0 then
-                                -- Try to infer from price
-                                for name, data in pairs(PetData) do
-                                    if data.Price == price then
-                                        petInfo = data
-                                        petName = name
-                                        break
-                                    end
-                                end
-                            end
-                            
-                            table.insert(pets, {
-                                Model = obj,
-                                RootPart = rootPart,
-                                PetName = petName or "Unknown",
-                                PetInfo = petInfo,
-                                Price = price,
-                                Prompt = prompt,
-                                Position = rootPart.Position,
-                                SpawnTime = tick(),
-                            })
-                        end
+        local wildPetSpawns = map:FindFirstChild("WildPetSpawns")
+        if not wildPetSpawns then return end
+        
+        for _, petModel in ipairs(wildPetSpawns:GetChildren()) do
+            if petModel:IsA("Model") and petModel.Name:find("WildPet") then
+                -- Extract pet name from model name
+                local petName = nil
+                local nameParts = string.split(petModel.Name, "_")
+                if #nameParts >= 2 then
+                    petName = nameParts[2]
+                    -- Handle names with spaces
+                    if petName == "GoldenDragonfly" then
+                        petName = "Golden Dragonfly"
+                    elseif petName == "BlackDragon" then
+                        petName = "Black Dragon"
+                    elseif petName == "IceSerpent" then
+                        petName = "Ice Serpent"
                     end
+                end
+                
+                -- Find RootPart
+                local rootPart = petModel:FindFirstChild("RootPart")
+                if not rootPart then
+                    rootPart = petModel:FindFirstChild("HumanoidRootPart")
+                end
+                
+                if rootPart and rootPart:IsDescendantOf(workspace) then
+                    -- Find ProximityPrompt (BuyPrompt)
+                    local buyPrompt = rootPart:FindFirstChild("BuyPrompt")
+                    
+                    -- Get pet info
+                    local petInfo = GetPetInfo(petName)
+                    if not petInfo then
+                        petInfo = GetPetInfo(nameParts[2])
+                    end
+                    
+                    local price = petInfo and petInfo.Price or 0
+                    local rarity = petInfo and petInfo.Rarity or "Common"
+                    
+                    table.insert(pets, {
+                        Model = petModel,
+                        RootPart = rootPart,
+                        BuyPrompt = buyPrompt,
+                        PetName = petName or "Unknown",
+                        PetInfo = petInfo,
+                        Price = price,
+                        Rarity = rarity,
+                        Position = rootPart.Position,
+                    })
                 end
             end
         end
@@ -270,53 +242,166 @@ local function FindWildPets()
 end
 
 -- ============================================
--- PURCHASE EXECUTION
+-- CONFIGURATION CHECK
+-- ============================================
+
+local function ShouldBuyPet(petName, petInfo, price, config)
+    local cfg = config or getgenv().SniperConfig
+    
+    -- Check for Huge/Big (absolute priority)
+    local isHugeOrBig, specialType = IsHugeOrBig(petName)
+    if isHugeOrBig then
+        return true, true, specialType
+    end
+    
+    -- Check rarity filter
+    if petInfo and cfg.RarityFilter then
+        local rarity = petInfo.Rarity
+        if cfg.RarityFilter[rarity] == false then
+            return false, false, "Normal"
+        end
+    end
+    
+    -- Check price filter
+    local maxPrice = cfg.MaxPrice or 0
+    if maxPrice > 0 and price > maxPrice then
+        return false, false, "Normal"
+    end
+    
+    return true, false, "Normal"
+end
+
+-- ============================================
+-- PROXIMITYPROMPT PURCHASE SYSTEM - FIXED
 -- ============================================
 
 local function FireProximityPrompt(prompt)
+    if not prompt then return false end
+    
     pcall(function()
-        if fireproximityprompt then
-            fireproximityprompt(prompt)
-        else
-            -- Alternative method using VirtualInputManager
-            if prompt and prompt:IsA("ProximityPrompt") then
-                firesignal(prompt.PromptButtonFrame.Triggered)
-            end
+        -- Set MaxActivationDistance to be very high
+        prompt.MaxActivationDistance = 1000
+        
+        -- Fire the prompt's HoldCompleted event
+        if prompt.HoldCompleted then
+            firesignal(prompt.HoldCompleted)
+        end
+        
+        -- Also try triggering the trigger
+        if prompt.Trigger then
+            firesignal(prompt.Trigger)
+        end
+        
+        -- Fire input events
+        if VirtualInputManager then
+            -- Try E key
+            VirtualInputManager:SendKeyDown(Enum.KeyCode.E)
+            task.wait(0.01)
+            VirtualInputManager:SendKeyUp(Enum.KeyCode.E)
         end
     end)
+    
+    return true
 end
 
-local function TryPurchasePet(pet, retryCount)
-    retryCount = retryCount or 0
+local function TryTriggerProximityPrompt(prompt)
+    if not prompt then return false end
+    
+    local success = false
     
     pcall(function()
-        -- Teleport to pet
-        local targetPos = pet.Position + Vector3.new(0, 3, 0)
-        TeleportTo(targetPos)
+        -- Check if prompt exists and is valid
+        if not prompt.Parent then return end
         
-        -- Small delay to ensure teleportation
-        task.wait(0.02)
+        -- Set max distance
+        prompt.MaxActivationDistance = 1000
+        prompt.Enabled = true
         
-        -- Try to fire proximity prompt
-        if pet.Prompt then
-            FireProximityPrompt(pet.Prompt)
+        -- Get keyboard keycode
+        local keyCode = Enum.KeyCode.E
+        pcall(function()
+            keyCode = prompt.KeyboardKeyCode or Enum.KeyCode.E
+        end)
+        
+        -- Method 1: VirtualInputManager
+        if VirtualInputManager then
+            VirtualInputManager:SendKeyDown(keyCode)
+            task.wait(0.005)
+            VirtualInputManager:SendKeyUp(keyCode)
         end
+        
+        -- Method 2: Firesignal on Trigger
+        if prompt.Trigger then
+            for i = 1, 5 do
+                firesignal(prompt.Trigger)
+                task.wait(0.01)
+            end
+        end
+        
+        -- Method 3: FirePromptButton
+        local button = prompt:FindFirstChild("PromptButtonFrame")
+        if button then
+            local buttonClick = button:FindFirstChildOfClass("TextButton") or button:FindFirstChildOfClass("ImageButton")
+            if buttonClick then
+                for i = 1, 3 do
+                    firesignal(buttonClick.Activated)
+                    task.wait(0.01)
+                end
+            end
+        end
+        
+        success = true
     end)
     
-    -- Wait for sniper delay
-    task.wait(getgenv().SniperDelay or 0.1)
+    return success
+end
+
+local function ExecutePurchase(pet)
+    local model = pet.Model
+    local buyPrompt = pet.BuyPrompt
     
-    -- Check if pet was successfully purchased (no longer in workspace)
-    local stillExists = pet.Model and pet.Model:IsDescendantOf(workspace)
+    if not model then return false end
     
-    if not stillExists then
-        return true -- Successfully purchased
-    elseif retryCount < getgenv().RetrySniperPet then
-        -- Retry
-        return TryPurchasePet(pet, retryCount + 1)
+    -- Find RootPart
+    local rootPart = model:FindFirstChild("RootPart") or model:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return false end
+    
+    -- Find BuyPrompt if not cached
+    if not buyPrompt then
+        buyPrompt = rootPart:FindFirstChild("BuyPrompt")
     end
     
-    return false -- Failed
+    if not buyPrompt then
+        return false
+    end
+    
+    -- Try multiple times
+    for attempt = 1, 10 do
+        -- Check if pet was already purchased (removed from workspace)
+        if not model:IsDescendantOf(workspace) then
+            return true
+        end
+        
+        -- Teleport very close to the pet
+        local petPos = rootPart.Position
+        InstantTeleport(petPos + Vector3.new(0, 2, 3))
+        task.wait(getgenv().SniperConfig.TeleportDelay or 0.05)
+        
+        -- Try to trigger the ProximityPrompt
+        TryTriggerProximityPrompt(buyPrompt)
+        
+        -- Also try direct firesignal methods
+        pcall(function()
+            if buyPrompt.HoldCompleted then
+                firesignal(buyPrompt.HoldCompleted)
+            end
+        end)
+        
+        task.wait(0.02)
+    end
+    
+    -- Check if pet was purchased
+    return not model:IsDescendantOf(workspace)
 end
 
 -- ============================================
@@ -324,19 +409,20 @@ end
 -- ============================================
 
 local function StartSniperLoop()
+    if IsSniping then return end
+    
     IsSniping = true
-    print("[Sniper] Auto Sniper Pet started!")
-    print("[Sniper] Config - MaxPrice: " .. getgenv().AutoBuyPetsMaxPrice .. ", Delay: " .. getgenv().SniperDelay)
+    local config = getgenv().SniperConfig or {}
+    
+    print("═══════════════════════════════════════════════════")
+    print("   🏹 Pet Sniper Started!")
+    print("═══════════════════════════════════════════════════")
+    print("   Max Price: " .. FormatNumber(config.MaxPrice or 0))
+    print("═══════════════════════════════════════════════════")
     
     task.spawn(function()
-        while IsSniping and getgenv().AutoBuyPets do
+        while IsSniping do
             pcall(function()
-                -- Check if main toggle is enabled
-                if not getgenv().AutoBuyPets then
-                    task.wait(0.5)
-                    return
-                end
-                
                 -- Find all wild pets
                 local pets = FindWildPets()
                 
@@ -358,17 +444,17 @@ local function StartSniperLoop()
                     return
                 end
                 
-                -- Sort pets by priority (Huge/Big > High rarity > Close distance)
+                -- Sort pets by priority
                 table.sort(pets, function(a, b)
-                    local aIsSpecial = IsHugeOrBig(a.PetName)
-                    local bIsSpecial = IsHugeOrBig(b.PetName)
-                    
-                    if aIsSpecial and not bIsSpecial then return true end
-                    if not aIsSpecial and bIsSpecial then return false end
+                    -- Huge/Big first
+                    local aIsHuge, aType = IsHugeOrBig(a.PetName)
+                    local bIsHuge, bType = IsHugeOrBig(b.PetName)
+                    if aIsHuge and not bIsHuge then return true end
+                    if not aIsHuge and bIsHuge then return false end
                     
                     -- Then by rarity
-                    local rarityA = RARITY_PRIORITY[a.PetInfo and a.PetInfo.Rarity or "Common"] or 0
-                    local rarityB = RARITY_PRIORITY[b.PetInfo and b.PetInfo.Rarity or "Common"] or 0
+                    local rarityA = RARITY_PRIORITY[a.Rarity] or 0
+                    local rarityB = RARITY_PRIORITY[b.Rarity] or 0
                     if rarityA ~= rarityB then
                         return rarityA > rarityB
                     end
@@ -379,327 +465,131 @@ local function StartSniperLoop()
                     return distA < distB
                 end)
                 
-                -- Process each pet
-                for _, pet in ipairs(pets) do
-                    if not IsSniping or not getgenv().AutoBuyPets then
-                        break
-                    end
+                -- Process the highest priority pet
+                local pet = pets[1]
+                if not pet or not pet.Model then
+                    task.wait(0.1)
+                    return
+                end
+                
+                -- Verify pet still exists
+                if not pet.Model:IsDescendantOf(workspace) then
+                    return
+                end
+                
+                -- Check if should buy
+                local shouldBuy, isHugeOrBig, specialType = ShouldBuyPet(pet.PetName, pet.PetInfo, pet.Price, config)
+                
+                if not shouldBuy then
+                    task.wait(0.1)
+                    return
+                end
+                
+                -- Log purchase attempt
+                local prefix = isHugeOrBig and "🚀" or "🎯"
+                local specialStr = isHugeOrBig and (" [" .. specialType .. "]") or ""
+                print(prefix .. " SNIPING" .. specialStr .. ": " .. pet.PetName .. " [" .. pet.Rarity .. "] - " .. FormatNumber(pet.Price))
+                
+                -- Prevent concurrent purchases
+                if not PurchaseInProgress then
+                    PurchaseInProgress = true
                     
-                    -- Check if pet is still valid
-                    if pet.Model and pet.Model:IsDescendantOf(workspace) then
-                        local shouldBuy, isHugeOrBig = ShouldBuyPet(pet.PetName, pet.PetInfo, pet.Price)
-                        
-                        if shouldBuy then
-                            local distance = (hrp.Position - pet.Position).Magnitude
-                            local petRarity = pet.PetInfo and pet.PetInfo.Rarity or "Unknown"
-                            local petPrice = pet.Price > 0 and pet.Price or (pet.PetInfo and pet.PetInfo.Price) or 0
-                            
-                            -- Log attempt
-                            if isHugeOrBig then
-                                print("[Sniper] 🚀 SNIPING HUGE/BIG PET: " .. pet.PetName .. " (Rarity: " .. petRarity .. ", Price: " .. petPrice .. ")")
-                            else
-                                print("[Sniper] 🎯 Sniping: " .. pet.PetName .. " [Rarity: " .. petRarity .. ", Price: " .. petPrice .. "]")
-                            end
-                            
-                            -- Teleport if needed
-                            if distance > (getgenv().SniperRange or 50) then
-                                TeleportTo(pet.Position + Vector3.new(0, 3, 0))
-                                task.wait(0.05)
-                            end
-                            
-                            -- Attempt purchase
-                            local success = TryPurchasePet(pet, 0)
-                            
-                            if success then
-                                SnipeStats.TotalSniped = SnipeStats.TotalSniped + 1
-                                if petPrice > 0 then
-                                    SnipeStats.TotalSpent = SnipeStats.TotalSpent + petPrice
-                                end
-                                table.insert(SnipedPets, {
-                                    Name = pet.PetName,
-                                    Rarity = petRarity,
-                                    Price = petPrice,
-                                    Time = os.date("%H:%M:%S"),
-                                })
-                                print("[Sniper] ✅ Successfully sniped: " .. pet.PetName)
-                            else
-                                SnipeStats.TotalMissed = SnipeStats.TotalMissed + 1
-                                print("[Sniper] ❌ Failed to snipe: " .. pet.PetName)
-                            end
-                            
-                            -- Small delay between purchases
-                            task.wait(getgenv().SniperDelay or 0.1)
-                        end
+                    -- Attempt purchase
+                    local startTime = tick()
+                    local success = ExecutePurchase(pet)
+                    local purchaseTime = (tick() - startTime) * 1000
+                    
+                    PurchaseInProgress = false
+                    
+                    if success then
+                        table.insert(SnipedPets, {
+                            Name = pet.PetName,
+                            Rarity = pet.Rarity,
+                            Price = pet.Price,
+                            Time = os.date("%H:%M:%S"),
+                        })
+                        print("✅ SUCCESS! " .. pet.PetName .. " [" .. pet.Rarity .. "] - " .. FormatNumber(pet.Price) .. " (" .. string.format("%.1fms", purchaseTime) .. ")")
+                    else
+                        print("❌ MISSED: " .. pet.PetName)
                     end
                 end
             end)
             
-            -- Small loop delay
-            task.wait(0.1)
+            task.wait(config.SniperDelay or 0.1)
         end
         
         IsSniping = false
-        print("[Sniper] Auto Sniper Pet stopped!")
+        print("═══════════════════════════════════════════════════")
+        print("   🏹 Pet Sniper Stopped!")
+        print("═══════════════════════════════════════════════════")
     end)
 end
 
 local function StopSniperLoop()
     IsSniping = false
-    getgenv().AutoBuyPets = false
-    print("[Sniper] Sniper stopped!")
+    print("[Sniper] Stopped!")
 end
 
-local function GetSniperStats()
+-- ============================================
+-- API FUNCTIONS
+-- ============================================
+
+getgenv().StartPetSniper = StartSniperLoop
+getgenv().StopPetSniper = StopSniperLoop
+getgenv().TogglePetSniper = function()
+    if IsSniping then
+        StopSniperLoop()
+    else
+        StartSniperLoop()
+    end
+end
+
+getgenv().GetSniperStats = function()
     return {
         IsRunning = IsSniping,
-        TotalSniped = SnipeStats.TotalSniped,
-        TotalSpent = SnipeStats.TotalSpent,
-        TotalMissed = SnipeStats.TotalMissed,
+        TotalSniped = #SnipedPets,
         CurrentSheckles = GetSheckles(),
         RecentPets = SnipedPets,
     }
 end
 
--- ============================================
--- UI CREATION (Optional Status Display)
--- ============================================
-
-local function CreateSniperUI()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "GrowGarden2_SniperUI"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.Parent = PlayerGui
-    
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Name = "SniperPanel"
-    MainFrame.Size = UDim2.new(0, 300, 0, 180)
-    MainFrame.Position = UDim2.new(0.01, 0, 0.7, 0)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
-    MainFrame.BackgroundTransparency = 0.1
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Parent = ScreenGui
-    
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 10)
-    Corner.Parent = MainFrame
-    
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Color = Color3.fromRGB(80, 80, 120)
-    Stroke.Thickness = 1
-    Stroke.Parent = MainFrame
-    
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, 0, 0, 30)
-    Title.BackgroundTransparency = 1
-    Title.Text = "🎯 Pet Sniper Status"
-    Title.TextColor3 = Color3.fromRGB(255, 200, 75)
-    Title.TextSize = 16
-    Title.Font = Enum.Font.GothamBold
-    Title.Parent = MainFrame
-    
-    local StatusText = Instance.new("TextLabel")
-    StatusText.Name = "StatusText"
-    StatusText.Size = UDim2.new(1, -20, 0, 20)
-    StatusText.Position = UDim2.new(0, 10, 0, 35)
-    StatusText.BackgroundTransparency = 1
-    StatusText.Text = "⏸️ Stopped"
-    StatusText.TextColor3 = Color3.fromRGB(150, 150, 170)
-    StatusText.TextSize = 12
-    StatusText.Font = Enum.Font.Gotham
-    StatusText.TextXAlignment = Enum.TextXAlignment.Left
-    StatusText.Parent = MainFrame
-    
-    local SnipedText = Instance.new("TextLabel")
-    SnipedText.Name = "SnipedText"
-    SnipedText.Size = UDim2.new(1, -20, 0, 20)
-    SnipedText.Position = UDim2.new(0, 10, 0, 55)
-    SnipedText.BackgroundTransparency = 1
-    SnipedText.Text = "🐾 Sniped: 0"
-    SnipedText.TextColor3 = Color3.fromRGB(100, 255, 150)
-    SnipedText.TextSize = 12
-    SnipedText.Font = Enum.Font.Gotham
-    SnipedText.TextXAlignment = Enum.TextXAlignment.Left
-    SnipedText.Parent = MainFrame
-    
-    local SpentText = Instance.new("TextLabel")
-    SpentText.Name = "SpentText"
-    SpentText.Size = UDim2.new(1, -20, 0, 20)
-    SpentText.Position = UDim2.new(0, 10, 0, 75)
-    SpentText.BackgroundTransparency = 1
-    SpentText.Text = "💰 Spent: 0"
-    SpentText.TextColor3 = Color3.fromRGB(255, 215, 0)
-    SpentText.TextSize = 12
-    SpentText.Font = Enum.Font.Gotham
-    SpentText.TextXAlignment = Enum.TextXAlignment.Left
-    SpentText.Parent = MainFrame
-    
-    local MissedText = Instance.new("TextLabel")
-    MissedText.Name = "MissedText"
-    MissedText.Size = UDim2.new(1, -20, 0, 20)
-    MissedText.Position = UDim2.new(0, 10, 0, 95)
-    MissedText.BackgroundTransparency = 1
-    MissedText.Text = "❌ Missed: 0"
-    MissedText.TextColor3 = Color3.fromRGB(255, 100, 100)
-    MissedText.TextSize = 12
-    MissedText.Font = Enum.Font.Gotham
-    MissedText.TextXAlignment = Enum.TextXAlignment.Left
-    MissedText.Parent = MainFrame
-    
-    local ShecklesText = Instance.new("TextLabel")
-    ShecklesText.Name = "ShecklesText"
-    ShecklesText.Size = UDim2.new(1, -20, 0, 20)
-    ShecklesText.Position = UDim2.new(0, 10, 0, 115)
-    ShecklesText.BackgroundTransparency = 1
-    ShecklesText.Text = "💎 Sheckles: Loading..."
-    ShecklesText.TextColor3 = Color3.fromRGB(180, 180, 200)
-    ShecklesText.TextSize = 12
-    ShecklesText.Font = Enum.Font.Gotham
-    ShecklesText.TextXAlignment = Enum.TextXAlignment.Left
-    ShecklesText.Parent = MainFrame
-    
-    local LastPetText = Instance.new("TextLabel")
-    LastPetText.Name = "LastPetText"
-    LastPetText.Size = UDim2.new(1, -20, 0, 20)
-    LastPetText.Position = UDim2.new(0, 10, 0, 135)
-    LastPetText.BackgroundTransparency = 1
-    LastPetText.Text = "✨ Last: None"
-    LastPetText.TextColor3 = Color3.fromRGB(200, 150, 255)
-    LastPetText.TextSize = 12
-    LastPetText.Font = Enum.Font.Gotham
-    LastPetText.TextXAlignment = Enum.TextXAlignment.Left
-    LastPetText.Parent = MainFrame
-    
-    local CloseButton = Instance.new("TextButton")
-    CloseButton.Size = UDim2.new(0, 25, 0, 25)
-    CloseButton.Position = UDim2.new(1, -30, 0, 5)
-    CloseButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    CloseButton.Text = "X"
-    CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    CloseButton.Font = Enum.Font.GothamBold
-    CloseButton.TextSize = 12
-    CloseButton.Parent = MainFrame
-    
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 5)
-    closeCorner.Parent = CloseButton
-    
-    CloseButton.MouseButton1Click:Connect(function()
-        ScreenGui:Destroy()
-    end)
-    
-    return ScreenGui
+getgenv().ConfigureSniper = function(config)
+    if not config then return end
+    local current = getgenv().SniperConfig or {}
+    getgenv().SniperConfig = {
+        Enabled = config.Enabled ~= nil and config.Enabled or current.Enabled,
+        MaxPrice = config.MaxPrice or current.MaxPrice or 0,
+        RarityFilter = config.RarityFilter or current.RarityFilter or {},
+        SniperDelay = config.SniperDelay or current.SniperDelay or 0.1,
+        TeleportDelay = config.TeleportDelay or current.TeleportDelay or 0.05,
+    }
+    print("[Sniper] Configuration updated!")
 end
 
-local SniperGui = nil
-
-local function UpdateSniperUI()
-    if not SniperGui then
-        SniperGui = CreateSniperUI()
-    end
-    
-    local panel = SniperGui:FindFirstChild("SniperPanel")
-    if not panel then return end
-    
-    local stats = GetSniperStats()
-    
-    local statusText = panel:FindFirstChild("StatusText")
-    local snipedText = panel:FindFirstChild("SnipedText")
-    local spentText = panel:FindFirstChild("SpentText")
-    local missedText = panel:FindFirstChild("MissedText")
-    local shecklesText = panel:FindFirstChild("ShecklesText")
-    local lastPetText = panel:FindFirstChild("LastPetText")
-    
-    if statusText then
-        statusText.Text = stats.IsRunning and "▶️ Running..." or "⏸️ Stopped"
-        statusText.TextColor3 = stats.IsRunning and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(150, 150, 170)
-    end
-    
-    if snipedText then
-        snipedText.Text = "🐾 Sniped: " .. stats.TotalSniped
-    end
-    
-    if spentText then
-        spentText.Text = "💰 Spent: " .. FormatNumber(stats.TotalSpent)
-    end
-    
-    if missedText then
-        missedText.Text = "❌ Missed: " .. stats.TotalMissed
-    end
-    
-    if shecklesText then
-        shecklesText.Text = "💎 Sheckles: " .. FormatNumber(stats.CurrentSheckles)
-    end
-    
-    if lastPetText and #stats.RecentPets > 0 then
-        local last = stats.RecentPets[#stats.RecentPets]
-        lastPetText.Text = "✨ Last: " .. last.Rarity .. " " .. last.Name
-    end
-end
-
--- Update UI periodically
-task.spawn(function()
-    while true do
-        pcall(UpdateSniperUI)
-        task.wait(1)
-    end
-end)
-
 -- ============================================
--- COMMANDS / API
+-- AUTO-START
 -- ============================================
 
--- Start the sniper
-getgenv().StartPetSniper = function()
-    if not getgenv().AutoBuyPets then
-        getgenv().AutoBuyPets = true
-        StartSniperLoop()
-        print("[Sniper] Started! Toggle: true")
-    end
+if getgenv().SniperConfig and getgenv().SniperConfig.Enabled then
+    task.wait(1) -- Wait for game to load
+    StartSniperLoop()
 end
-
--- Stop the sniper
-getgenv().StopPetSniper = function()
-    StopSniperLoop()
-    print("[Sniper] Stopped!")
-end
-
--- Toggle the sniper
-getgenv().TogglePetSniper = function()
-    if getgenv().AutoBuyPets then
-        getgenv().StopPetSniper()
-    else
-        getgenv().StartPetSniper()
-    end
-end
-
--- Get sniper stats
-getgenv().GetSniperStats = GetSniperStats
-
--- ============================================
--- INITIALIZATION
--- ============================================
 
 print([[
 ╔══════════════════════════════════════════════════════════════╗
-║           GrowGarden2 - Auto Sniper Pet Loaded!              ║
+║        GrowGarden2 - Pet Sniper Loaded!                 ║
 ╠══════════════════════════════════════════════════════════════╣
-║  COMMANDS:                                                   ║
-║  - getgenv().StartPetSniper()  - Start sniping              ║
-║  - getgenv().StopPetSniper()   - Stop sniping               ║
-║  - getgenv().TogglePetSniper() - Toggle sniping              ║
-║  - getgenv().GetSniperStats() - Get statistics              ║
+║  COMMANDS:                                                 ║
+║  • getgenv().StartPetSniper()  - Start sniping           ║
+║  • getgenv().StopPetSniper()   - Stop sniping            ║
+║  • getgenv().TogglePetSniper() - Toggle sniping          ║
+║  • getgenv().GetSniperStats()  - Get statistics          ║
 ║                                                              ║
-║  CONFIGURATION (modify these globals):                        ║
-║  - getgenv().AutoBuyPets = true/false                        ║
-║  - getgenv().AutoBuyPetsMaxPrice = 0 (0 = no limit)         ║
-║  - getgenv().AutoBuyPetsRarityFilter = {...}                 ║
-║  - getgenv().PetFilter = {} (empty = all pets)               ║
-║  - getgenv().SniperDelay = 0.1                               ║
-║  - getgenv().RetrySniperPet = 3                              ║
+║  CONFIG:                                                    ║
+║  • getgenv().SniperConfig.Enabled = true/false            ║
+║  • getgenv().SniperConfig.MaxPrice = 0 (0 = no limit)    ║
+║  • getgenv().SniperConfig.RarityFilter["Mythic"] = true   ║
+║                                                              ║
+║  NOTE: Set Enabled = false before editing config!           ║
 ╚══════════════════════════════════════════════════════════════╝
 ]])
-
--- Auto-start if enabled in config
-if getgenv().AutoBuyPets then
-    StartSniperLoop()
-end
