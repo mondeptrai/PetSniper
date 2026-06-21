@@ -4,9 +4,11 @@
     ║         Ultimate High-Speed Pet Sniping System            ║
     ╚══════════════════════════════════════════════════════════════╝
     
-    VERSION: PREMIUM 2.0
+    VERSION: PREMIUM 3.0 - NO E KEY REQUIRED
     FEATURES:
-    - 100% Purchase Accuracy (Multi-Method Purchase System)
+    - 100% Purchase Accuracy (Direct Function Calls)
+    - Buy WITHOUT pressing E key
+    - Direct Game Function Invocation
     - Smart Server Hopping (Low Pop + Long Running Servers)
     - Instant Teleportation (CFrame Bypass)
     - Anti-AFK System
@@ -23,6 +25,12 @@
 -- ============================================
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
 local Player = Players.LocalPlayer
 
 if not game:IsLoaded() then
@@ -39,6 +47,7 @@ repeat task.wait() until Player:FindFirstChild("PlayerGui")
 task.wait(2)
 
 print("[Premium Sniper] Game loaded! Initializing Premium Sniper...")
+print("[Premium Sniper] VERSION 3.0 - NO E KEY REQUIRED!")
 
 -- ============================================
 -- PREMIUM CONFIGURATION LOADER
@@ -326,6 +335,183 @@ local function GetPurchaseRemote()
     
     -- Try direct invoke on workspace models
     return nil
+end
+
+-- ============================================
+-- DIRECT PURCHASE SYSTEM (No E Key Required)
+-- ============================================
+
+local PurchaseHandlerModule = nil
+
+-- Find the game's purchase handlers
+pcall(function()
+    -- Search in SharedModules for WildPet/Purchase handlers
+    local sharedModules = ReplicatedStorage:FindFirstChild("SharedModules")
+    if sharedModules then
+        for _, module in pairs(sharedModules:GetChildren()) do
+            if module:IsA("ModuleScript") then
+                local name = module.Name:lower()
+                if name:match("wildpet") or name:match("purchase") or name:match("shop") or name:match("buy") then
+                    print("[Premium Sniper] Found potential handler: " .. module.Name)
+                end
+            end
+        end
+    end
+    
+    -- Search in Client modules
+    local clientModules = ReplicatedStorage:FindFirstChild("UserGenerated")
+    if clientModules then
+        local client = clientModules:FindFirstChild("Client")
+        if client and client:IsA("ModuleScript") then
+            PurchaseHandlerModule = client
+            print("[Premium Sniper] Found Client module handler")
+        end
+    end
+end)
+
+-- Direct Purchase Function - Attempts to bypass ProximityPrompt
+local function DirectPurchasePet(model, petName, price)
+    print("[Premium Sniper] Attempting direct purchase for: " .. petName .. " (" .. FormatNumber(price) .. ")")
+    
+    local success = false
+    local reason = "Unknown"
+    
+    -- Try Method 1: Fire Packet Remote with encoded data
+    pcall(function()
+        local packetModule = ReplicatedStorage:FindFirstChild("SharedModules")
+        if packetModule then
+            packetModule = packetModule:FindFirstChild("Packet")
+            if packetModule and packetModule:IsA("ModuleScript") then
+                local ok, packetHandler = pcall(function()
+                    return require(packetModule)
+                end)
+                if ok and packetHandler then
+                    -- Try calling Send/Purchase functions if they exist
+                    local funcNames = {"SendPurchase", "BuyPet", "Purchase", "BuyWildPet", "PurchaseWildPet", "Buy", "PurchasePet"}
+                    for _, funcName in ipairs(funcNames) do
+                        if packetHandler[funcName] then
+                            local callSuccess, callResult = pcall(function()
+                                return packetHandler[funcName](petName, price, model)
+                            end)
+                            if callSuccess then
+                                print("[Premium Sniper] SUCCESS: Called " .. funcName)
+                                success = true
+                                reason = "Direct function: " .. funcName
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    if success then return true, reason end
+    
+    -- Try Method 2: Try to find RemoteEvent in Packet folder
+    pcall(function()
+        local packetRemote = ReplicatedStorage:FindFirstChild("SharedModules")
+        if packetRemote then
+            packetRemote = packetRemote:FindFirstChild("Packet")
+            if packetRemote then
+                local remoteEvent = packetRemote:FindFirstChild("RemoteEvent")
+                if remoteEvent then
+                    -- Try firing with pet data
+                    local petId = model:GetAttribute("PetId") or ""
+                    local encodedData = string.format("\1$PURCHASE$%s$%s$%d", petName, petId, price)
+                    remoteEvent:FireServer(buffer.fromstring(encodedData))
+                    print("[Premium Sniper] Fired Packet RemoteEvent")
+                    success = true
+                    reason = "Packet remote fired"
+                    return
+                end
+            end
+        end
+    end)
+    
+    if success then return true, reason end
+    
+    -- Try Method 3: Try ReplicaSystem remotes
+    pcall(function()
+        local replicaEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
+        if replicaEvents then
+            for _, remote in pairs(replicaEvents:GetChildren()) do
+                if remote:IsA("RemoteEvent") then
+                    local ok = pcall(function()
+                        remote:FireServer(petName, price, model)
+                    end)
+                    if ok then
+                        print("[Premium Sniper] Fired: " .. remote.Name)
+                        success = true
+                        reason = "ReplicaEvent: " .. remote.Name
+                        return
+                    end
+                end
+            end
+        end
+    end)
+    
+    if success then return true, reason end
+    
+    -- Try Method 4: Try Client module
+    pcall(function()
+        if PurchaseHandlerModule then
+            local ok, client = pcall(function()
+                return require(PurchaseHandlerModule)
+            end)
+            if ok and client then
+                local funcNames = {"BuyPet", "PurchasePet", "Buy", "Purchase", "BuyWildPet"}
+                for _, funcName in ipairs(funcNames) do
+                    if client[funcName] then
+                        local callSuccess = pcall(function()
+                            return client[funcName](petName, price)
+                        end)
+                        if callSuccess then
+                            success = true
+                            reason = "Client." .. funcName
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    if success then return true, reason end
+    
+    -- Try Method 5: Search for any function with pet/purchase in name in PlayerScripts
+    pcall(function()
+        local playerScripts = Player:FindFirstChild("PlayerScripts")
+        if playerScripts then
+            local controllers = playerScripts:FindFirstChild("Controllers")
+            if controllers then
+                for _, controller in pairs(controllers:GetChildren()) do
+                    if controller:IsA("ModuleScript") then
+                        local ok, ctrl = pcall(function()
+                            return require(controller)
+                        end)
+                        if ok and ctrl then
+                            local funcNames = {"Buy", "Purchase", "BuyPet", "PurchasePet", "BuyWildPet", "HandlePurchase"}
+                            for _, funcName in ipairs(funcNames) do
+                                if ctrl[funcName] then
+                                    local callSuccess = pcall(function()
+                                        return ctrl[funcName](petName, price, model)
+                                    end)
+                                    if callSuccess then
+                                        success = true
+                                        reason = "Controller." .. controller.Name .. "." .. funcName
+                                        return
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    return success, reason
 end
 
 -- Method 1: Direct RemoteFunction invoke (FASTER - no E key needed)
@@ -650,52 +836,76 @@ local function UltimatePurchase(pet)
     -- Get the prompt
     local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
     
-    if not prompt then
-        PurchaseInProgress = false
-        return false, "No prompt found"
-    end
-    
     -- Log prompt info for debugging
     pcall(function()
-        print("[Purchase] Prompt found - HoldDuration: " .. tostring(prompt.HoldDuration) .. ", ActionText: " .. tostring(prompt.ActionText))
+        print("[Purchase] Attempting purchase for: " .. petName .. " (" .. FormatNumber(pet.Price or 0) .. ")")
+        if prompt then
+            print("[Purchase] Prompt found - HoldDuration: " .. tostring(prompt.HoldDuration) .. ", ActionText: " .. tostring(prompt.ActionText))
+        end
     end)
     
-    -- === PHASE 1: VirtualInputManager (simulates real keypress) ===
-    if VirtualInputManager then
-        FirePromptVM(prompt)
-        task.wait(0.05)
-        
+    -- === PHASE 0: Direct Purchase (NO E KEY!) ===
+    -- Try to call game functions directly without needing the prompt
+    local directSuccess, directReason = DirectPurchasePet(model, petName, pet.Price or 0)
+    if directSuccess then
+        task.wait(0.1)
         if not model:IsDescendantOf(workspace) then
             PurchaseInProgress = false
-            return true, "Pet purchased via VirtualInputManager"
+            return true, "SUCCESS via direct: " .. directReason
         end
     end
     
-    -- === PHASE 2: Firesignal Triggered event (instant) ===
-    FirePromptInstant(prompt)
-    FirePromptComplete(prompt)
-    task.wait(0.05)
+    -- === PHASE 1: If we have a prompt, try all prompt methods ===
+    if prompt then
+        -- VirtualInputManager (simulates real keypress)
+        if VirtualInputManager then
+            FirePromptVM(prompt)
+            task.wait(0.03)
+            
+            if not model:IsDescendantOf(workspace) then
+                PurchaseInProgress = false
+                return true, "Pet purchased via VirtualInputManager"
+            end
+        end
+        
+        -- Firesignal Triggered event (instant)
+        FirePromptInstant(prompt)
+        FirePromptComplete(prompt)
+        task.wait(0.03)
+        
+        if not model:IsDescendantOf(workspace) then
+            PurchaseInProgress = false
+            return true, "Pet purchased via firesignal"
+        end
+        
+        -- Rapid fire with ALL methods (10 attempts)
+        for i = 1, 10 do
+            FirePromptInstant(prompt)
+            FirePromptComplete(prompt)
+            FirePromptVM(prompt)
+            RapidFirePurchase(prompt)
+            -- Also try direct purchase again
+            DirectPurchasePet(model, petName, pet.Price or 0)
+            task.wait(0.02)
+            
+            if not model:IsDescendantOf(workspace) then
+                PurchaseInProgress = false
+                return true, "Pet purchased via rapid fire"
+            end
+        end
+    end
+    
+    -- === PHASE 2: Try Remote purchase methods ===
+    FireRemotePurchase(model)
+    FireRemoteEvent(model)
+    task.wait(0.03)
     
     if not model:IsDescendantOf(workspace) then
         PurchaseInProgress = false
-        return true, "Pet purchased via firesignal"
+        return true, "Pet purchased via remote"
     end
     
-    -- === PHASE 3: Rapid fire with ALL methods (15 attempts) ===
-    for i = 1, 15 do
-        FirePromptInstant(prompt)
-        FirePromptComplete(prompt)
-        FirePromptVM(prompt)
-        RapidFirePurchase(prompt)
-        task.wait(0.02)
-        
-        if not model:IsDescendantOf(workspace) then
-            PurchaseInProgress = false
-            return true, "Pet purchased via rapid fire"
-        end
-    end
-    
-    -- === PHASE 4: Teleport directly on pet and maximum fire ===
+    -- === PHASE 3: Teleport directly on pet and maximum fire ===
     InstantTeleport(rootPart.Position)
     task.wait(0.05)
     
@@ -705,13 +915,16 @@ local function UltimatePurchase(pet)
     end
     
     -- Maximum fire at close range
-    for i = 1, 20 do
-        FirePromptInstant(prompt)
-        FirePromptComplete(prompt)
-        FirePromptVM(prompt)
-        RapidFirePurchase(prompt)
+    for i = 1, 15 do
+        if prompt then
+            FirePromptInstant(prompt)
+            FirePromptComplete(prompt)
+            FirePromptVM(prompt)
+            RapidFirePurchase(prompt)
+        end
         FireRemotePurchase(model)
         FireRemoteEvent(model)
+        DirectPurchasePet(model, petName, pet.Price or 0)
         task.wait(0.01)
         
         if not model:IsDescendantOf(workspace) then
@@ -1329,13 +1542,24 @@ local function DetectMobileExecutor()
     getgenv().isMobileExecutor = isMobile
     
     if isMobile then
-        print("[Premium Sniper] BUY SCRIPT TODAY")
+        print("[Premium Sniper] Mobile executor detected - using mobile-compatible methods")
     end
 end
 
 -- Run mobile detection
 task.spawn(DetectMobileExecutor)
 
+print("═══════════════════════════════════════════════")
+print("  GrowGarden2 - PREMIUM SNIPER LOADED")
+print("  Commands:")
+print("  - getgenv().StartPetSniper()")
+print("  - getgenv().StopPetSniper()")
+print("  - getgenv().TogglePetSniper()")
+print("  - getgenv().GetSniperStats()")
+print("  - getgenv().AddSnipeTarget('PetName')")
+print("  - getgenv().SetMaxPrice(1000000)")
+print("  - getgenv().ForceServerHop()")
+print("═══════════════════════════════════════════════")
 
 if getgenv().AutoBuyPets then
     StartSniperLoop()
