@@ -3,8 +3,8 @@
     ║      GrowGarden2 - AUTO SNIPE PET PREMIUM (Core Logic)  ║
     ║         Ultimate High-Speed Pet Sniping System            ║
     ╚══════════════════════════════════════════════════════════════╝
-    
-    VERSION: PREMIUM 2.0
+
+    VERSION: PREMIUM 2.1
     FEATURES:
     - 100% Purchase Accuracy (Multi-Method Purchase System)
     - Smart Server Hopping (Low Pop + Long Running Servers)
@@ -12,11 +12,21 @@
     - Anti-AFK System
     - Real-time Pet Spawn Prediction
     - Performance Optimized
-    
-    USAGE:
-    1. Edit LoaderSnipePet.lua to configure settings
-    2. Run LoaderSnipePet.lua - it will auto-load this script
+    - Built-in Retry System for License Verification
+
+    NOTE: This script requires LoaderSnipePet.lua to be run first.
+    The Loader handles all configuration and license key setup.
 ]]
+
+-- ============================================
+-- API RETRY CONFIGURATION
+-- ============================================
+
+getgenv().API_RETRY_CONFIG = {
+    RETRY_ENABLED = true,
+    RETRY_DELAY = 5,
+    MAX_RETRIES = 3,
+}
 
 -- ============================================
 -- WAIT FOR GAME LOAD (for autoexec folder)
@@ -123,7 +133,7 @@ local SnipeStats = {
 local LastQualifyingPetTime = 0
 local HasFoundQualifyingPetThisSession = false
 local CurrentServerStartTime = tick()
-local AttemptedPets = {}
+local AttemptedPets = {} -- Format: [tostring(petModel)] = "failed" or nil
 
 -- ============================================
 -- PREMIUM UTILITY FUNCTIONS
@@ -184,11 +194,7 @@ end
 
 local function IsPetAlreadyAttempted(petModel)
     local modelPath = tostring(petModel)
-    return AttemptedPets[modelPath] == true
-end
-
-local function MarkPetAsAttempted(petModel)
-    AttemptedPets[tostring(petModel)] = true
+    return AttemptedPets[modelPath] == "failed"
 end
 
 -- ============================================
@@ -382,24 +388,28 @@ end
 local function TryPurchasePet(pet, retryCount)
     retryCount = retryCount or 0
     
-    -- Skip if already attempted
-    if IsPetAlreadyAttempted(pet.Model) and retryCount == 0 then
+    -- Check if already attempted this specific attempt (not from previous runs)
+    local modelPath = tostring(pet.Model)
+    if AttemptedPets[modelPath] == "failed" then
         return false
     end
     
-    MarkPetAsAttempted(pet.Model)
     SnipeStats.TotalAttempts = SnipeStats.TotalAttempts + 1
     
     local success = UltimatePurchase(pet)
     
     if success then
+        -- Remove from attempted since we got it
+        AttemptedPets[modelPath] = nil
         return true
     elseif retryCount < getgenv().RetrySniperPet then
         task.wait(0.01)
         return TryPurchasePet(pet, retryCount + 1)
+    else
+        -- Only mark as permanently failed after all retries exhausted
+        AttemptedPets[modelPath] = "failed"
+        return false
     end
-    
-    return false
 end
 
 -- ============================================
@@ -521,14 +531,14 @@ end
 -- ============================================
 
 local function SendDiscordWebhook(petName, rarity, price, isHugeOrBig)
-    local webhookConfig = getgenv().DiscordWebhook
-    if not webhookConfig or not webhookConfig.Enabled or not webhookConfig.URL then return end
-    
-    local rarityFilter = webhookConfig.RarityFilter or {}
-    if not isHugeOrBig and not rarityFilter[rarity] then return end
-    
     task.spawn(function()
         pcall(function()
+            -- Check if webhook is configured
+            local webhookConfig = getgenv().DiscordWebhook
+            if not webhookConfig or not webhookConfig.Enabled or not webhookConfig.URL or webhookConfig.URL == "" then
+                return
+            end
+            
             local HttpService = game:GetService("HttpService")
             
             local rarityColors = {
@@ -536,28 +546,41 @@ local function SendDiscordWebhook(petName, rarity, price, isHugeOrBig)
                 Epic = 9933999, Legendary = 16750848, Mythic = 12519404, Super = 16724269,
             }
             
+            local pingText = webhookConfig.PingOnSnipe and "@everyone" or ""
+            
             local embed = {
                 {
-                    title = (isHugeOrBig and "HUGE/BIG SNIPED!" or (rarity .. " SNIPED!")),
+                    title = (isHugeOrBig and "🐾 HUGE/BIG SNIPED!" or ("✨ " .. rarity .. " SNIPED!")),
                     description = "**Pet:** " .. petName .. "\n**Price:** " .. FormatNumber(price) .. " Sheckles\n**Time:** " .. os.date("%Y-%m-%d %H:%M:%S UTC+7"),
                     color = rarityColors[rarity] or 9807270,
                     footer = { text = "GrowGarden2 Premium Sniper" },
+                    thumbnail = {
+                        url = "https://cdn.discordapp.com/emojis/1234567890.png"
+                    }
                 }
             }
             
             local payload = {
-                content = webhookConfig.PingOnSnipe and "@everyone" or "",
+                content = pingText,
                 embeds = embed,
             }
             
             local request = syn and syn.request or http_request or request
             if request then
-                request({
+                print("[Premium Sniper] Sending webhook notification for: " .. petName)
+                local response = request({
                     Url = webhookConfig.URL,
                     Method = "POST",
                     Headers = { ["Content-Type"] = "application/json" },
                     Body = HttpService:JSONEncode(payload),
                 })
+                if response and response.StatusCode == 200 or response.StatusCode == 204 then
+                    print("[Premium Sniper] Webhook sent successfully!")
+                else
+                    print("[Premium Sniper] Webhook failed! Status: " .. tostring(response and response.StatusCode))
+                end
+            else
+                print("[Premium Sniper] Webhook: HTTP request not available")
             end
         end)
     end)
@@ -591,6 +614,7 @@ local function StartSniperLoop()
                 
                 local pets = FindWildPets()
                 local hasQualifyingPet = false
+                local purchasedThisRound = 0
                 
                 if #pets == 0 then
                     -- Silent - too many prints
@@ -617,9 +641,14 @@ local function StartSniperLoop()
                     return (hrp.Position - a.Position).Magnitude < (hrp.Position - b.Position).Magnitude
                 end)
                 
-                for _, pet in ipairs(pets) do
+                -- Process all qualifying pets
+                local maxPurchasesPerRound = 10
+                for i, pet in ipairs(pets) do
                     if not IsSniping or not getgenv().AutoBuyPets then break end
+                    if purchasedThisRound >= maxPurchasesPerRound then break end
+                    
                     if pet.Model and pet.Model:IsDescendantOf(workspace) then
+                        -- Only skip permanently failed pets
                         if IsPetAlreadyAttempted(pet.Model) then continue end
                         
                         local shouldBuy, isHugeOrBig = ShouldBuyPet(pet.PetName, pet.PetInfo, pet.Price)
@@ -644,6 +673,7 @@ local function StartSniperLoop()
                             
                             if success then
                                 SnipeStats.TotalSniped = SnipeStats.TotalSniped + 1
+                                purchasedThisRound = purchasedThisRound + 1
                                 if petPrice > 0 then SnipeStats.TotalSpent = SnipeStats.TotalSpent + petPrice end
                                 
                                 table.insert(SnipedPets, {
@@ -657,6 +687,7 @@ local function StartSniperLoop()
                                 SendDiscordWebhook(pet.PetName, petRarity, petPrice, isHugeOrBig)
                             else
                                 SnipeStats.TotalMissed = SnipeStats.TotalMissed + 1
+                                print("[Premium Sniper] ✗ Missed: " .. pet.PetName)
                             end
                             
                             -- Update success rate
@@ -669,19 +700,22 @@ local function StartSniperLoop()
                     end
                 end
                 
-                -- Smart Server Hop
+                -- If we purchased pets this round, immediately re-scan for more
+                if purchasedThisRound > 0 then
+                    task.wait(0.02)
+                    -- Will pick up remaining pets in next iteration
+                end
+                
+                -- Smart Server Hop - Hop immediately when no qualifying pets
                 if getgenv().AutoServerHop and not hasQualifyingPet then
                     local timeSinceQualifying = tick() - LastQualifyingPetTime
                     if timeSinceQualifying >= getgenv().ServerHopDelay then
-                        if HasFoundQualifyingPetThisSession then
-                            print("[Premium Sniper] Qualifying pets were bought. Waiting for new spawns...")
-                        else
-                            print("[Premium Sniper] No qualifying pets found. Hopping to new server...")
-                            SnipeStats.TotalHops = SnipeStats.TotalHops + 1
-                            CurrentServerStartTime = tick()
-                            AttemptedPets = {}
-                            PremiumServerHop()
-                        end
+                        print("[Premium Sniper] No qualifying pets found. Hopping to new server...")
+                        SnipeStats.TotalHops = SnipeStats.TotalHops + 1
+                        CurrentServerStartTime = tick()
+                        AttemptedPets = {}
+                        HasFoundQualifyingPetThisSession = false
+                        PremiumServerHop()
                         LastQualifyingPetTime = tick()
                     end
                 end
@@ -900,6 +934,152 @@ getgenv().ForceServerHop = function()
     CurrentServerStartTime = tick()
     AttemptedPets = {}
     PremiumServerHop()
+end
+
+-- ============================================
+-- LICENSE VERIFICATION (With Retry)
+-- ============================================
+
+local function GetHWID()
+    local Players = game:GetService("Players")
+    local Player = Players.LocalPlayer
+    local userId = Player.UserId
+    local userName = Player.Name
+    return tostring(userId) .. "_" .. userName:sub(1, 3) .. "_" .. #tostring(userId)
+end
+
+local function VerifyLicense()
+    local Players = game:GetService("Players")
+    local Player = Players.LocalPlayer
+    local HttpService = game:GetService("HttpService")
+
+    local API_URL = "http://YOUR_LOCAL_IP:3000"
+    local key = getgenv().LICENSE_KEY
+    local hwid = getgenv().LICENSE_HWID or GetHWID()
+
+    if not key or key == "YOUR_LICENSE_KEY_HERE" then
+        return false, "License key not configured"
+    end
+
+    local url = API_URL .. "/verify-key?key=" .. key .. "&hwid=" .. HttpService:UrlEncode(hwid)
+
+    local success, result = pcall(function()
+        return HttpService:GetAsync(url, false, {["Security"] = "x-csrf-token"})
+    end)
+
+    if not success then
+        return false, "Connection failed"
+    end
+
+    local decodeSuccess, data = pcall(function()
+        return HttpService:JSONDecode(result)
+    end)
+
+    if not decodeSuccess then
+        return false, "Invalid response"
+    end
+
+    if data.status == "KEY_VALID" then
+        return true, "Valid"
+    elseif data.status == "KEY_INVALID" then
+        return false, "Invalid key"
+    elseif data.status == "KEY_EXPIRED" then
+        return false, "Key expired"
+    elseif data.status == "HWID_MISMATCH" then
+        return false, "HWID mismatch"
+    else
+        return false, data.error or "Unknown error"
+    end
+end
+
+local function ShowLicenseError(message)
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "LicenseErrorGui"
+    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+    
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 400, 0, 200)
+    Frame.Position = UDim2.new(0.5, -200, 0.5, -100)
+    Frame.BackgroundColor3 = Color3.fromRGB(40, 30, 30)
+    Frame.Parent = ScreenGui
+    Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 12)
+    
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.fromRGB(255, 80, 80)
+    Stroke.Thickness = 2
+    Stroke.Parent = Frame
+    
+    local Icon = Instance.new("TextLabel")
+    Icon.Size = UDim2.new(1, 0, 0, 60)
+    Icon.Position = UDim2.new(0, 0, 0, 20)
+    Icon.BackgroundTransparency = 1
+    Icon.Text = "❌"
+    Icon.TextSize = 40
+    Icon.Parent = Frame
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -40, 0, 30)
+    Title.Position = UDim2.new(0, 20, 0, 85)
+    Title.BackgroundTransparency = 1
+    Title.Text = "License Verification Failed"
+    Title.TextColor3 = Color3.fromRGB(255, 100, 100)
+    Title.TextSize = 18
+    Title.Font = Enum.Font.GothamBold
+    Title.Parent = Frame
+    
+    local ErrorText = Instance.new("TextLabel")
+    ErrorText.Size = UDim2.new(1, -40, 0, 40)
+    ErrorText.Position = UDim2.new(0, 20, 0, 120)
+    ErrorText.BackgroundTransparency = 1
+    ErrorText.Text = message
+    ErrorText.TextColor3 = Color3.fromRGB(200, 180, 180)
+    ErrorText.TextSize = 13
+    ErrorText.Font = Enum.Font.Gotham
+    ErrorText.TextWrapped = true
+    ErrorText.Parent = Frame
+end
+
+-- Verify license with retry
+local function StartWithRetry()
+    local config = getgenv().API_RETRY_CONFIG or {
+        RETRY_ENABLED = true,
+        RETRY_DELAY = 5,
+        MAX_RETRIES = 3,
+    }
+    local retries = 0
+    local maxRetries = config.MAX_RETRIES
+
+    repeat
+        if retries > 0 then
+            print("[License] Retry " .. retries .. "/" .. maxRetries .. " in " .. config.RETRY_DELAY .. "s...")
+            task.wait(config.RETRY_DELAY)
+        end
+
+        local success, message = VerifyLicense()
+
+        if success then
+            print("[License] Verification successful!")
+            return true
+        end
+
+        retries = retries + 1
+        print("[License] Failed: " .. message)
+
+    until retries >= maxRetries
+
+    ShowLicenseError(message .. "\n\nPlease check your connection and re-run the script.")
+    return false
+end
+
+-- Run verification if not already verified
+if not getgenv().LICENSE_VERIFIED then
+    print("[Premium Sniper] Verifying license...")
+    
+    if not StartWithRetry() then
+        return
+    end
+    
+    getgenv().LICENSE_VERIFIED = true
 end
 
 -- ============================================
