@@ -162,6 +162,16 @@ local function InstantTeleport(pos)
     return false
 end
 
+-- Get actual proximity prompt distance from pet model
+local function GetPromptDistance(model)
+    if not model then return 1000 end
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt")
+    if prompt then
+        return prompt.MaxActivationDistance or 10
+    end
+    return 10 -- default
+end
+
 local function IsHugeOrBig(petName)
     if not petName then return false end
     return petName:lower():find("huge") or petName:lower():find("big")
@@ -282,48 +292,51 @@ end
 local function FirePromptVM(prompt)
     if not prompt then return false end
     pcall(function()
-        local boundKeyCode = prompt.KeyboardKeyCode
-        if boundKeyCode then
-            VirtualInputManager:SendKeyEvent(true, boundKeyCode, false, game)
-            task.wait()
-            VirtualInputManager:SendKeyEvent(false, boundKeyCode, false, game)
+        local boundKeyCode = prompt.KeyboardKeyCode or Enum.KeyCode.E
+        VirtualInputManager:SendKeyEvent(true, boundKeyCode, false, game)
+        task.wait()
+        VirtualInputManager:SendKeyEvent(false, boundKeyCode, false, game)
+    end)
+    return true
+end
+
+-- Method 2: Direct Trigger (if available)
+local function FirePromptTrigger(prompt)
+    if not prompt then return false end
+    pcall(function()
+        if prompt.Trigger then
+            prompt:Trigger()
+        elseif fireproximityprompt then
+            fireproximityprompt(prompt)
         end
     end)
     return true
 end
 
--- Method 2: Direct Fire Signal
+-- Method 3: Firesignal on Triggered event
 local function FirePromptSignal(prompt)
     if not prompt then return false end
     pcall(function()
-        if prompt.PromptButtonFrame then
+        if prompt.Triggered then
+            firesignal(prompt.Triggered)
+        elseif prompt.PromptButtonFrame then
             firesignal(prompt.PromptButtonFrame, "MouseButton1Click")
         end
     end)
     return true
 end
 
--- Method 3: Proximity Prompt Hold
-local function FirePromptHold(prompt)
+-- Method 4: Keypress via firesignal on frame
+local function FirePromptKeypress(prompt)
     if not prompt then return false end
     pcall(function()
-        if prompt.HoldDuration > 0 then
-            firesignal(prompt.PromptButtonFrame.Triggered)
-        else
-            firesignal(prompt.PromptButtonFrame.Triggered)
-        end
-    end)
-    return true
-end
-
--- Method 4: Custom Fire Function
-local function FirePromptCustom(prompt)
-    if not prompt then return false end
-    pcall(function()
-        if fireproximityprompt then
-            fireproximityprompt(prompt)
-        else
-            firesignal(prompt.PromptButtonFrame.Triggered)
+        if prompt.PromptButtonFrame and prompt.PromptButtonFrame.InputHook then
+            firesignal(prompt.PromptButtonFrame.InputHook, Enum.KeyCode.E)
+        elseif prompt.KeyboardKeyCode then
+            local key = prompt.KeyboardKeyCode
+            VirtualInputManager:SendKeyEvent(true, key, false, game)
+            task.wait()
+            VirtualInputManager:SendKeyEvent(false, key, false, game)
         end
     end)
     return true
@@ -335,10 +348,28 @@ local function FirePromptRemote(prompt, model)
     pcall(function()
         local actionName = model:GetAttribute("ActionName") or "PurchasePet"
         local remote = ReplicatedStorage:FindFirstChild(actionName) or 
-                       ReplicatedStorage:FindFirstChild("PurchaseWildPet")
+                       ReplicatedStorage:FindFirstChild("PurchaseWildPet") or
+                       ReplicatedStorage:FindFirstChild("PurchasePet")
         if remote and remote:IsA("RemoteFunction") then
             remote:InvokeServer(model)
         end
+    end)
+    return true
+end
+
+-- Method 6: Set ProximityPrompt.HeldDuration to 0 then trigger
+local function FirePromptInstant(prompt)
+    if not prompt then return false end
+    pcall(function()
+        local originalHold = prompt.HoldDuration
+        prompt.HoldDuration = 0
+        task.wait()
+        if prompt.Triggered then
+            firesignal(prompt.Triggered)
+        elseif prompt.Trigger then
+            prompt:Trigger()
+        end
+        prompt.HoldDuration = originalHold
     end)
     return true
 end
@@ -350,11 +381,7 @@ local function UltimatePurchase(pet)
     local petName = pet.PetName
     local position = pet.Position
     
-    -- Instant teleport to pet
-    InstantTeleport(position + Vector3.new(0, 3, 0))
-    task.wait(0.05)
-    
-    -- Re-find the pet model fresh after teleport
+    -- Re-find the pet model to get fresh info
     local model = nil
     local rootPart = nil
     
@@ -363,7 +390,7 @@ local function UltimatePurchase(pet)
             local rp = obj:FindFirstChild("RootPart") or obj:FindFirstChild("HumanoidRootPart")
             if rp and rp:IsDescendantOf(workspace) then
                 local dist = (rp.Position - position).Magnitude
-                if dist < 30 then
+                if dist < 50 then
                     model = obj
                     rootPart = rp
                     break
@@ -377,6 +404,16 @@ local function UltimatePurchase(pet)
         return true
     end
     
+    -- Get prompt distance and teleport RIGHT next to the pet
+    local promptDistance = GetPromptDistance(model)
+    InstantTeleport(rootPart.Position + Vector3.new(0, 0, -2)) -- Stand in front
+    task.wait(0.08) -- Wait for server to register
+    
+    -- Re-check model is still there
+    if not model:IsDescendantOf(workspace) then
+        return true
+    end
+    
     -- Get fresh prompt reference
     local prompt = rootPart:FindFirstChildWhichIsA("ProximityPrompt")
     
@@ -385,40 +422,33 @@ local function UltimatePurchase(pet)
         return true
     end
     
-    -- Try multiple purchase methods
-    local methods = {
-        function() FirePromptCustom(prompt) end,
-        function() FirePromptSignal(prompt) end,
-        function() FirePromptHold(prompt) end,
-        function() FirePromptVM(prompt) end,
-        function() FirePromptRemote(prompt, model) end,
-    }
-    
-    -- Fire all methods
-    for _, method in ipairs(methods) do
-        task.spawn(method)
-    end
-    
-    task.wait(0.1)
-    
-    -- Final keypress
-    if prompt and prompt.KeyboardKeyCode then
-        VirtualInputManager:SendKeyEvent(true, prompt.KeyboardKeyCode, false, game)
-        task.wait()
-        VirtualInputManager:SendKeyEvent(false, prompt.KeyboardKeyCode, false, game)
-    end
-    
-    task.wait(0.05)
-    
-    -- Check if model is still valid (visible, has prompt)
-    if not model:IsDescendantOf(workspace) then
-        return true
-    end
-    
-    local newPrompt = rootPart and rootPart:FindFirstChildWhichIsA("ProximityPrompt")
-    if not newPrompt then
-        -- No prompt anymore = purchased!
-        return true
+    -- Try all purchase methods multiple times for reliability
+    for attempt = 1, 3 do
+        -- Fire all methods
+        FirePromptTrigger(prompt)
+        FirePromptSignal(prompt)
+        FirePromptInstant(prompt)
+        FirePromptKeypress(prompt)
+        FirePromptVM(prompt)
+        FirePromptRemote(prompt, model)
+        
+        task.wait(0.1)
+        
+        -- Check if purchased
+        if not model:IsDescendantOf(workspace) then
+            return true
+        end
+        
+        local newPrompt = rootPart and rootPart:FindFirstChildWhichIsA("ProximityPrompt")
+        if not newPrompt then
+            return true
+        end
+        
+        -- If still here on last attempt, try one more teleport closer
+        if attempt == 2 then
+            InstantTeleport(rootPart.Position)
+            task.wait(0.05)
+        end
     end
     
     return false
