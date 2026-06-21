@@ -29,6 +29,295 @@ getgenv().API_RETRY_CONFIG = {
 }
 
 -- ============================================
+-- LICENSE VERIFICATION UI
+-- ============================================
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local Player = Players.LocalPlayer
+
+local COLORS = {
+    Primary = Color3.fromRGB(25, 25, 35),
+    Secondary = Color3.fromRGB(40, 45, 60),
+    Accent = Color3.fromRGB(100, 180, 255),
+    Success = Color3.fromRGB(80, 220, 120),
+    Error = Color3.fromRGB(255, 80, 80),
+    Warning = Color3.fromRGB(255, 200, 80),
+    Text = Color3.fromRGB(255, 255, 255),
+    TextDim = Color3.fromRGB(160, 160, 170),
+}
+
+-- Create GUI
+local LicenseGui = Instance.new("ScreenGui")
+LicenseGui.Name = "LicenseVerificationGui"
+LicenseGui.Parent = Player:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 400, 0, 320)
+MainFrame.Position = UDim2.new(0.5, -200, 0.5, -160)
+MainFrame.BackgroundColor3 = COLORS.Primary
+MainFrame.Parent = LicenseGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = COLORS.Accent
+Stroke.Thickness = 2
+Stroke.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 55)
+TitleBar.BackgroundColor3 = COLORS.Secondary
+TitleBar.Parent = MainFrame
+Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 12)
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 1, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "Premium Pet Sniper"
+TitleLabel.TextColor3 = COLORS.Text
+TitleLabel.TextSize = 18
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Parent = TitleBar
+
+-- Content
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -50, 1, -95)
+Content.Position = UDim2.new(0, 25, 0, 65)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
+
+-- Status Icon
+local StatusIcon = Instance.new("TextLabel")
+StatusIcon.Size = UDim2.new(0, 50, 0, 50)
+StatusIcon.Position = UDim2.new(0.5, -25, 0, 5)
+StatusIcon.BackgroundTransparency = 1
+StatusIcon.Text = ""
+StatusIcon.TextSize = 38
+StatusIcon.Parent = Content
+
+-- Status Text
+local StatusText = Instance.new("TextLabel")
+StatusText.Size = UDim2.new(1, 0, 0, 25)
+StatusText.Position = UDim2.new(0, 0, 0, 60)
+StatusText.BackgroundTransparency = 1
+StatusText.Text = "Enter your license key"
+StatusText.TextColor3 = COLORS.TextDim
+StatusText.TextSize = 15
+StatusText.Font = Enum.Font.GothamMedium
+StatusText.Parent = Content
+
+-- Key Input Field
+local InputFrame = Instance.new("Frame")
+InputFrame.Size = UDim2.new(1, 0, 0, 45)
+InputFrame.Position = UDim2.new(0, 0, 0, 95)
+InputFrame.BackgroundColor3 = COLORS.Secondary
+InputFrame.Parent = Content
+Instance.new("UICorner", InputFrame).CornerRadius = UDim.new(0, 8)
+
+local KeyInput = Instance.new("TextBox")
+KeyInput.Size = UDim2.new(1, -20, 1, 0)
+KeyInput.Position = UDim2.new(0, 10, 0, 0)
+KeyInput.BackgroundTransparency = 1
+KeyInput.Text = getgenv().LICENSE_KEY or ""
+KeyInput.PlaceholderText = "Enter your license key here..."
+KeyInput.PlaceholderColor3 = COLORS.TextDim
+KeyInput.TextColor3 = COLORS.Text
+KeyInput.TextSize = 14
+KeyInput.Font = Enum.Font.Gotham
+KeyInput.TextXAlignment = Enum.TextXAlignment.Left
+KeyInput.ClearTextOnFocus = false
+KeyInput.Parent = InputFrame
+
+-- Hint Text
+local HintText = Instance.new("TextLabel")
+HintText.Size = UDim2.new(1, 0, 0, 20)
+HintText.Position = UDim2.new(0, 0, 0, 145)
+HintText.BackgroundTransparency = 1
+HintText.Text = "Your key will be validated with the server"
+HintText.TextColor3 = COLORS.TextDim
+HintText.TextTransparency = 0.3
+HintText.TextSize = 11
+HintText.Font = Enum.Font.Gotham
+HintText.Parent = Content
+
+-- Verify Button
+local VerifyBtn = Instance.new("TextButton")
+VerifyBtn.Size = UDim2.new(1, 0, 0, 42)
+VerifyBtn.Position = UDim2.new(0, 0, 1, -50)
+VerifyBtn.BackgroundColor3 = COLORS.Accent
+VerifyBtn.Text = "Verify & Load"
+VerifyBtn.TextColor3 = COLORS.Text
+VerifyBtn.TextSize = 15
+VerifyBtn.Font = Enum.Font.GothamBold
+VerifyBtn.AutoButtonColor = false
+VerifyBtn.Parent = Content
+Instance.new("UICorner", VerifyBtn).CornerRadius = UDim.new(0, 8)
+
+-- Button hover effect
+VerifyBtn.MouseEnter:Connect(function()
+    TweenService:Create(VerifyBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(120, 200, 280)}):Play()
+end)
+VerifyBtn.MouseLeave:Connect(function()
+    TweenService:Create(VerifyBtn, TweenInfo.new(0.15), {BackgroundColor3 = COLORS.Accent}):Play()
+end)
+
+-- Error/Status Display
+local ErrorDisplay = Instance.new("TextLabel")
+ErrorDisplay.Size = UDim2.new(1, 0, 0, 35)
+ErrorDisplay.Position = UDim2.new(0, 0, 0, 170)
+ErrorDisplay.BackgroundTransparency = 1
+ErrorDisplay.Text = ""
+ErrorDisplay.TextColor3 = COLORS.Error
+ErrorDisplay.TextSize = 12
+ErrorDisplay.Font = Enum.Font.Gotham
+ErrorDisplay.TextWrapped = true
+ErrorDisplay.Visible = false
+ErrorDisplay.Parent = Content
+
+-- Verification callback - will be set after UI loads
+getgenv().LICENSE_ON_VERIFIED = nil
+
+-- KICK FUNCTION
+local function KickPlayer(reason)
+    StatusIcon.Text = ""
+    StatusText.Text = "Access Denied"
+    StatusText.TextColor3 = COLORS.Error
+    ErrorDisplay.Text = reason
+    ErrorDisplay.Visible = true
+    ErrorDisplay.TextColor3 = COLORS.Error
+    VerifyBtn.Text = "Kicked"
+    VerifyBtn.BackgroundColor3 = COLORS.Error
+    VerifyBtn.Active = false
+
+    -- Shake animation
+    local origPos = MainFrame.Position
+    for i = 1, 6 do
+        MainFrame.Position = origPos + UDim2.new(0, (i % 2 == 0 and 8 or -8), 0, 0)
+        task.wait(0.04)
+    end
+    MainFrame.Position = origPos
+
+    task.wait(1.5)
+
+    -- Fade out
+    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+        Position = MainFrame.Position + UDim2.new(0, 0, 0, 200),
+        BackgroundTransparency = 1
+    }):Play()
+
+    task.wait(0.35)
+    LicenseGui:Destroy()
+
+    -- Kick the player
+    pcall(function()
+        Player:Kick("Premium Sniper\n\n" .. reason)
+    end)
+end
+
+-- LOAD SUCCESS
+local function LoadMainScript()
+    StatusIcon.Text = ""
+    StatusText.Text = "Verified! Loading script..."
+    StatusText.TextColor3 = COLORS.Success
+    VerifyBtn.Text = "Loading..."
+    VerifyBtn.BackgroundColor3 = COLORS.Success
+    VerifyBtn.Active = false
+
+    task.wait(1)
+
+    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+        Position = MainFrame.Position + UDim2.new(0, 0, 0, -200),
+        BackgroundTransparency = 1
+    }):Play()
+
+    task.wait(0.35)
+    LicenseGui:Destroy()
+
+    -- Mark as verified
+    getgenv().LICENSE_VERIFIED = true
+
+    -- Call the callback to continue
+    if getgenv().LICENSE_ON_VERIFIED then
+        getgenv().LICENSE_ON_VERIFIED()
+    end
+end
+
+-- VERIFY BUTTON CLICK
+VerifyBtn.MouseButton1Click:Connect(function()
+    local key = KeyInput.Text
+
+    -- Trim whitespace
+    key = key:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if key == "" or key == "YOUR_LICENSE_KEY_HERE" then
+        ErrorDisplay.Text = "Please enter a valid license key"
+        ErrorDisplay.Visible = true
+        ErrorDisplay.TextColor3 = COLORS.Error
+        return
+    end
+
+    -- Update global key
+    getgenv().LICENSE_KEY = key
+
+    -- Show verifying state
+    StatusIcon.Text = ""
+    StatusText.Text = "Verifying..."
+    StatusText.TextColor3 = COLORS.TextDim
+    ErrorDisplay.Visible = false
+    VerifyBtn.Text = "Verifying..."
+    VerifyBtn.Active = false
+
+    -- Verify with server
+    task.spawn(function()
+        local HttpService = game:GetService("HttpService")
+        local userId = Player.UserId
+        local userName = Player.Name:sub(1, 3)
+        local hwid = tostring(userId) .. "_" .. userName
+        local url = "http://YOUR_LOCAL_IP:3000/verify-key?key=" .. key .. "&hwid=" .. hwid
+
+        local success, result = pcall(function()
+            return HttpService:GetAsync(url, false, {["Security"] = "x-csrf-token"})
+        end)
+
+        if not success then
+            KickPlayer("Connection failed!\nServer unreachable. Check your connection.")
+            return
+        end
+
+        local decodeSuccess, data = pcall(function()
+            return HttpService:JSONDecode(result)
+        end)
+
+        if not decodeSuccess then
+            KickPlayer("Invalid server response!\nPlease try again.")
+            return
+        end
+
+        if data.status == "KEY_VALID" then
+            LoadMainScript()
+        elseif data.status == "KEY_INVALID" then
+            KickPlayer("Invalid license key!\nPlease check your key and try again.")
+        elseif data.status == "KEY_EXPIRED" then
+            KickPlayer("License expired!\nPlease renew your subscription.")
+        elseif data.status == "HWID_MISMATCH" then
+            KickPlayer("This key has already been activated on another machine.")
+        elseif data.status == "KEY_ALREADY_USED" then
+            KickPlayer("This key has already been activated on another machine.")
+        else
+            KickPlayer("Error: " .. (data.error or "Unknown error"))
+        end
+    end)
+end)
+
+-- Enter key to verify
+KeyInput.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        VerifyBtn:MouseButton1Click()
+    end
+end)
+
+-- ============================================
 -- WAIT FOR GAME LOAD (for autoexec folder)
 -- ============================================
 
@@ -885,7 +1174,16 @@ end)
 -- PREMIUM API
 -- ============================================
 
+local function CheckLicense()
+    if not getgenv().LICENSE_VERIFIED then
+        print("[Premium Sniper] License not verified! Please enter a valid key.")
+        return false
+    end
+    return true
+end
+
 getgenv().StartPetSniper = function()
+    if not CheckLicense() then return end
     if not getgenv().AutoBuyPets then
         getgenv().AutoBuyPets = true
         StartSniperLoop()
@@ -893,10 +1191,12 @@ getgenv().StartPetSniper = function()
 end
 
 getgenv().StopPetSniper = function()
+    if not CheckLicense() then return end
     StopSniperLoop()
 end
 
 getgenv().TogglePetSniper = function()
+    if not CheckLicense() then return end
     if getgenv().AutoBuyPets then
         getgenv().StopPetSniper()
     else
@@ -904,16 +1204,21 @@ getgenv().TogglePetSniper = function()
     end
 end
 
-getgenv().GetSniperStats = GetSniperStats
+getgenv().GetSniperStats = function()
+    if not CheckLicense() then return nil end
+    return GetSniperStats()
+end
 
 -- Add target pets dynamically
 getgenv().AddSnipeTarget = function(petName)
+    if not CheckLicense() then return end
     if not getgenv().PetFilter then getgenv().PetFilter = {} end
     table.insert(getgenv().PetFilter, petName)
     print("[Premium Sniper] Added target: " .. petName)
 end
 
 getgenv().RemoveSnipeTarget = function(petName)
+    if not CheckLicense() then return end
     if not getgenv().PetFilter then return end
     for i, name in ipairs(getgenv().PetFilter) do
         if name:lower() == petName:lower() then
@@ -925,11 +1230,13 @@ getgenv().RemoveSnipeTarget = function(petName)
 end
 
 getgenv().SetMaxPrice = function(price)
+    if not CheckLicense() then return end
     getgenv().AutoBuyPetsMaxPrice = price
     print("[Premium Sniper] Max price set to: " .. FormatNumber(price))
 end
 
 getgenv().ForceServerHop = function()
+    if not CheckLicense() then return end
     print("[Premium Sniper] Forced server hop!")
     CurrentServerStartTime = tick()
     AttemptedPets = {}
@@ -937,167 +1244,26 @@ getgenv().ForceServerHop = function()
 end
 
 -- ============================================
--- LICENSE VERIFICATION (With Retry)
+-- INITIALIZATION (Runs after license verified)
 -- ============================================
 
-local function GetHWID()
-    local Players = game:GetService("Players")
-    local Player = Players.LocalPlayer
-    local userId = Player.UserId
-    local userName = Player.Name
-    return tostring(userId) .. "_" .. userName:sub(1, 3) .. "_" .. #tostring(userId)
-end
+local function InitializeSniper()
+    print("═══════════════════════════════════════════════")
+    print("  GrowGarden2 - PREMIUM SNIPER LOADED")
+    print("  Commands:")
+    print("  - getgenv().StartPetSniper()")
+    print("  - getgenv().StopPetSniper()")
+    print("  - getgenv().TogglePetSniper()")
+    print("  - getgenv().GetSniperStats()")
+    print("  - getgenv().AddSnipeTarget('PetName')")
+    print("  - getgenv().SetMaxPrice(1000000)")
+    print("  - getgenv().ForceServerHop()")
+    print("═══════════════════════════════════════════════")
 
-local function VerifyLicense()
-    local Players = game:GetService("Players")
-    local Player = Players.LocalPlayer
-    local HttpService = game:GetService("HttpService")
-
-    local API_URL = "http://YOUR_LOCAL_IP:3000"
-    local key = getgenv().LICENSE_KEY
-    local hwid = getgenv().LICENSE_HWID or GetHWID()
-
-    if not key or key == "YOUR_LICENSE_KEY_HERE" then
-        return false, "License key not configured"
-    end
-
-    local url = API_URL .. "/verify-key?key=" .. key .. "&hwid=" .. HttpService:UrlEncode(hwid)
-
-    local success, result = pcall(function()
-        return HttpService:GetAsync(url, false, {["Security"] = "x-csrf-token"})
-    end)
-
-    if not success then
-        return false, "Connection failed"
-    end
-
-    local decodeSuccess, data = pcall(function()
-        return HttpService:JSONDecode(result)
-    end)
-
-    if not decodeSuccess then
-        return false, "Invalid response"
-    end
-
-    if data.status == "KEY_VALID" then
-        return true, "Valid"
-    elseif data.status == "KEY_INVALID" then
-        return false, "Invalid key"
-    elseif data.status == "KEY_EXPIRED" then
-        return false, "Key expired"
-    elseif data.status == "HWID_MISMATCH" then
-        return false, "HWID mismatch"
-    else
-        return false, data.error or "Unknown error"
+    if getgenv().AutoBuyPets then
+        StartSniperLoop()
     end
 end
 
-local function ShowLicenseError(message)
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "LicenseErrorGui"
-    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
-    
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 400, 0, 200)
-    Frame.Position = UDim2.new(0.5, -200, 0.5, -100)
-    Frame.BackgroundColor3 = Color3.fromRGB(40, 30, 30)
-    Frame.Parent = ScreenGui
-    Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 12)
-    
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Color = Color3.fromRGB(255, 80, 80)
-    Stroke.Thickness = 2
-    Stroke.Parent = Frame
-    
-    local Icon = Instance.new("TextLabel")
-    Icon.Size = UDim2.new(1, 0, 0, 60)
-    Icon.Position = UDim2.new(0, 0, 0, 20)
-    Icon.BackgroundTransparency = 1
-    Icon.Text = "❌"
-    Icon.TextSize = 40
-    Icon.Parent = Frame
-    
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, -40, 0, 30)
-    Title.Position = UDim2.new(0, 20, 0, 85)
-    Title.BackgroundTransparency = 1
-    Title.Text = "License Verification Failed"
-    Title.TextColor3 = Color3.fromRGB(255, 100, 100)
-    Title.TextSize = 18
-    Title.Font = Enum.Font.GothamBold
-    Title.Parent = Frame
-    
-    local ErrorText = Instance.new("TextLabel")
-    ErrorText.Size = UDim2.new(1, -40, 0, 40)
-    ErrorText.Position = UDim2.new(0, 20, 0, 120)
-    ErrorText.BackgroundTransparency = 1
-    ErrorText.Text = message
-    ErrorText.TextColor3 = Color3.fromRGB(200, 180, 180)
-    ErrorText.TextSize = 13
-    ErrorText.Font = Enum.Font.Gotham
-    ErrorText.TextWrapped = true
-    ErrorText.Parent = Frame
-end
-
--- Verify license with retry
-local function StartWithRetry()
-    local config = getgenv().API_RETRY_CONFIG or {
-        RETRY_ENABLED = true,
-        RETRY_DELAY = 5,
-        MAX_RETRIES = 3,
-    }
-    local retries = 0
-    local maxRetries = config.MAX_RETRIES
-
-    repeat
-        if retries > 0 then
-            print("[License] Retry " .. retries .. "/" .. maxRetries .. " in " .. config.RETRY_DELAY .. "s...")
-            task.wait(config.RETRY_DELAY)
-        end
-
-        local success, message = VerifyLicense()
-
-        if success then
-            print("[License] Verification successful!")
-            return true
-        end
-
-        retries = retries + 1
-        print("[License] Failed: " .. message)
-
-    until retries >= maxRetries
-
-    ShowLicenseError(message .. "\n\nPlease check your connection and re-run the script.")
-    return false
-end
-
--- Run verification if not already verified
-if not getgenv().LICENSE_VERIFIED then
-    print("[Premium Sniper] Verifying license...")
-    
-    if not StartWithRetry() then
-        return
-    end
-    
-    getgenv().LICENSE_VERIFIED = true
-end
-
--- ============================================
--- INITIALIZATION
--- ============================================
-
-print("═══════════════════════════════════════════════")
-print("  GrowGarden2 - PREMIUM SNIPER LOADED")
-print("  Commands:")
-print("  - getgenv().StartPetSniper()")
-print("  - getgenv().StopPetSniper()")
-print("  - getgenv().TogglePetSniper()")
-print("  - getgenv().GetSniperStats()")
-print("  - getgenv().AddSnipeTarget('PetName')")
-print("  - getgenv().SetMaxPrice(1000000)")
-print("  - getgenv().ForceServerHop()")
-print("═══════════════════════════════════════════════")
-
-if getgenv().AutoBuyPets then
-    StartSniperLoop()
-end
+-- Register callback for after license verification
+getgenv().LICENSE_ON_VERIFIED = InitializeSniper
