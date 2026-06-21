@@ -76,7 +76,7 @@ local function VerifyLicense()
         print("[Premium Sniper] Attempt " .. (retries + 1) .. "/" .. VERIFY_CONFIG.MAX_RETRIES .. "...")
 
         local success, result = pcall(function()
-            return HttpService:GetAsync(url, false, {["Security"] = "x-csrf-token"})
+            return HttpService:GetAsync(url)
         end)
 
         if not success then
